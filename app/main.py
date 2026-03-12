@@ -28,6 +28,164 @@ st.set_page_config(
     layout="wide"
 )
 
+# --- MODERN THEME CSS ---
+st.markdown("""
+<style>
+    /* ===== Google Font ===== */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+    /* ===== Global ===== */
+    html, body, [class*="css"] {
+        font-family: 'Inter', sans-serif !important;
+    }
+
+    /* ===== Main container ===== */
+    .main .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+    }
+
+    /* ===== Headers ===== */
+    h1 {
+        font-weight: 800 !important;
+        letter-spacing: -0.5px !important;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+    h2, h3 {
+        font-weight: 700 !important;
+        letter-spacing: -0.3px !important;
+    }
+
+    /* ===== Metric cards ===== */
+    [data-testid="stMetric"] {
+        background: linear-gradient(135deg, #1e1e2e 0%, #2d2d44 100%);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 16px;
+        padding: 20px 24px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    [data-testid="stMetric"]:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 30px rgba(0,0,0,0.25);
+    }
+    [data-testid="stMetricLabel"] {
+        font-size: 0.85rem !important;
+        font-weight: 500 !important;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        opacity: 0.7;
+    }
+    [data-testid="stMetricValue"] {
+        font-size: 2rem !important;
+        font-weight: 800 !important;
+    }
+
+    /* ===== Sidebar ===== */
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%) !important;
+        border-right: 1px solid rgba(255,255,255,0.05);
+    }
+    section[data-testid="stSidebar"] h1,
+    section[data-testid="stSidebar"] h2,
+    section[data-testid="stSidebar"] h3 {
+        background: none !important;
+        -webkit-text-fill-color: white !important;
+    }
+
+    /* ===== Tabs ===== */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        background: rgba(255,255,255,0.03);
+        border-radius: 12px;
+        padding: 4px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 10px;
+        padding: 10px 20px;
+        font-weight: 600;
+        font-size: 0.9rem;
+        letter-spacing: 0.2px;
+    }
+    .stTabs [aria-selected="true"] {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        color: white !important;
+        border-bottom: none !important;
+    }
+
+    /* ===== Buttons ===== */
+    .stButton > button[kind="primary"],
+    .stDownloadButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        border: none !important;
+        border-radius: 12px !important;
+        font-weight: 600 !important;
+        font-family: 'Inter', sans-serif !important;
+        letter-spacing: 0.3px;
+        padding: 0.6rem 1.5rem !important;
+        transition: all 0.3s ease !important;
+        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3) !important;
+    }
+    .stButton > button[kind="primary"]:hover,
+    .stDownloadButton > button[kind="primary"]:hover {
+        transform: translateY(-1px) !important;
+        box-shadow: 0 6px 25px rgba(102, 126, 234, 0.5) !important;
+    }
+
+    /* ===== Dataframe ===== */
+    [data-testid="stDataFrame"] {
+        border-radius: 12px;
+        overflow: hidden;
+        border: 1px solid rgba(255,255,255,0.08);
+    }
+
+    /* ===== Inputs ===== */
+    .stSelectbox, .stMultiSelect, .stTextInput, .stTextArea, .stDateInput {
+        font-family: 'Inter', sans-serif !important;
+    }
+    .stSelectbox > div > div,
+    .stMultiSelect > div > div,
+    .stTextInput > div > div > input,
+    .stTextArea > div > textarea {
+        border-radius: 10px !important;
+        border: 1px solid rgba(255,255,255,0.1) !important;
+        font-family: 'Inter', sans-serif !important;
+    }
+
+    /* ===== Info/Success/Warning/Error boxes ===== */
+    .stAlert {
+        border-radius: 12px !important;
+        border-left-width: 4px !important;
+        font-family: 'Inter', sans-serif !important;
+    }
+
+    /* ===== File Uploader ===== */
+    [data-testid="stFileUploader"] {
+        border-radius: 12px;
+    }
+
+    /* ===== Dividers ===== */
+    hr {
+        border: none;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(102, 126, 234, 0.3), transparent);
+        margin: 1.5rem 0;
+    }
+
+    /* ===== Subtle animation on page load ===== */
+    @keyframes fadeInUp {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .main .block-container {
+        animation: fadeInUp 0.4s ease-out;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # --- INITIALIZE DATABASE ---
 init_db()
 
@@ -35,7 +193,7 @@ init_db()
 # =============================================================
 # HELPER: Build the operative list from DB patients
 # =============================================================
-@st.cache_data(ttl=30)  # Cache for 30 seconds
+@st.cache_data(ttl=30)
 def build_operative_list():
     """
     Build the operative patient list from the database.
@@ -57,7 +215,6 @@ def build_operative_list():
         all_statuses = get_all_vaccination_statuses(dn)
 
         if not all_statuses:
-            # Up to date
             rows.append({
                 "ID": patient["id"],
                 "Nume si Prenume": patient["nume"],
@@ -69,11 +226,9 @@ def build_operative_list():
             })
             continue
 
-        # Check for special statuses (Adult, Eroare)
         if any("Adult" in s[0] or "Eroare" in s[0] for s in all_statuses):
             continue
 
-        # Filter out already-administered vaccines
         pending = [(s, v, c) for s, v, c in all_statuses if c not in vaccinated_codes]
 
         if not pending:
@@ -88,7 +243,6 @@ def build_operative_list():
             })
             continue
 
-        # Add one row per pending vaccine
         for status_text, vaccin_name, cod_cat in pending:
             rows.append({
                 "ID": patient["id"],
@@ -110,15 +264,20 @@ def highlight_rows(row):
     """Color-code rows by vaccination status."""
     status = row['Status']
     if "RESTANT" in status:
-        color = '#ff4b4b'
+        bg = 'rgba(255, 75, 75, 0.25)'
+        color = '#ff6b6b'
     elif "Scadent" in status:
-        color = '#ffa421'
+        bg = 'rgba(255, 164, 33, 0.25)'
+        color = '#ffc078'
     elif "Urmează" in status:
-        color = '#21c354'
+        bg = 'rgba(33, 195, 84, 0.25)'
+        color = '#69db7c'
     else:
-        color = 'transparent'
+        bg = 'transparent'
+        color = 'inherit'
     return [
-        f'background-color: {color}; color: white; font-weight: bold' if col == 'Status' else ''
+        f'background-color: {bg}; color: {color}; font-weight: 700; border-radius: 6px;'
+        if col == 'Status' else ''
         for col in row.index
     ]
 
@@ -127,9 +286,19 @@ def highlight_rows(row):
 # SIDEBAR
 # =============================================================
 with st.sidebar:
-    st.image("https://img.icons8.com/color/96/syringe.png", width=60)
-    st.title("Vaccineasy")
-    st.caption("v4.0 — cu bază de date")
+    st.markdown("""
+    <div style="text-align: center; padding: 1rem 0;">
+        <div style="font-size: 3rem; margin-bottom: 0.3rem;">💉</div>
+        <div style="font-size: 1.5rem; font-weight: 800; letter-spacing: -0.5px;
+                    background: linear-gradient(135deg, #667eea, #764ba2);
+                    -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+            Vaccineasy
+        </div>
+        <div style="font-size: 0.75rem; opacity: 0.5; margin-top: 2px; letter-spacing: 2px; text-transform: uppercase;">
+            v4.0 · Bază de date locală
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     st.markdown("---")
 
@@ -141,7 +310,7 @@ with st.sidebar:
     st.markdown("---")
 
     # Excel Import Section
-    st.header("📁 Import Date")
+    st.markdown("##### 📁 Import Date")
     uploaded_file = st.file_uploader(
         "Încarcă Excel/CSV din ICMED",
         type=['xlsx', 'xls', 'csv'],
@@ -165,13 +334,14 @@ with st.sidebar:
                 )
 
     st.markdown("---")
-    st.info("ℹ️ Datele sunt salvate local. Nu se pierd la repornire.")
+    st.info("ℹ️ Datele sunt salvate local și persistă după repornirea containerului Docker.")
 
 
 # =============================================================
 # MAIN CONTENT — TABS
 # =============================================================
-st.title("💉 Vaccineasy — Sistem Management Vaccinări")
+st.title("💉 Vaccineasy")
+st.caption("Sistem Management Vaccinări Pediatrice · Calendarul Național de Vaccinare")
 
 tab_dashboard, tab_record, tab_history, tab_export = st.tabs([
     "📊 Dashboard", "💊 Înregistrare Vaccinare", "📋 Istoric Pacient", "📥 Export Anexa 1"
@@ -186,7 +356,6 @@ with tab_dashboard:
         st.markdown("### 👋 Nu există pacienți în baza de date.")
         st.markdown("Încarcă un fișier Excel/CSV din bara laterală pentru a începe.")
     else:
-        # Metrics
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Copii Înregistrați", df["ID"].nunique())
 
@@ -200,7 +369,6 @@ with tab_dashboard:
 
         st.markdown("---")
 
-        # Filters
         st.subheader("Lista Operativă")
         optiuni_filtru = ["🔴 RESTANT", "🟡 Scadent", "🟢 Urmează", "🟢 La Zi"]
         filtru = st.multiselect(
@@ -234,31 +402,27 @@ with tab_record:
     if not children:
         st.warning("Nu există pacienți copii în baza de date.")
     else:
-        # Patient selector
-        patient_options = {f"{p['nume']} (CNP: ...{p['cnp'][-4:]})": p for p in children}
+        # Patient selector — FULL CNP shown
+        patient_options = {f"{p['nume']}  ·  CNP: {p['cnp']}": p for p in children}
         selected_name = st.selectbox("Pacient:", list(patient_options.keys()))
         selected_patient = patient_options[selected_name]
 
         st.markdown(f"**Vârstă:** {format_varsta(selected_patient['data_nasterii'])}")
 
-        # Show what's already been administered
         vaccinated_codes = get_vaccinated_codes_for_patient(selected_patient["id"])
         if vaccinated_codes:
             st.success(f"Vaccinuri deja administrate: {', '.join(vaccinated_codes)}")
 
         st.markdown("---")
 
-        # Vaccine selector
         vaccines = get_all_vaccines()
         vaccine_options = {f"{v['nume']} ({v['cod']})": v for v in vaccines}
         selected_vaccine_name = st.selectbox("Vaccin administrat:", list(vaccine_options.keys()))
         selected_vaccine = vaccine_options[selected_vaccine_name]
 
-        # Already administered warning
         if selected_vaccine['cod'] in vaccinated_codes:
             st.warning("⚠️ Acest vaccin a fost deja înregistrat. Salvarea va actualiza înregistrarea.")
 
-        # Input fields
         col1, col2 = st.columns(2)
         with col1:
             date_admin = st.date_input("Data administrării:", value=datetime.now().date())
@@ -295,7 +459,8 @@ with tab_history:
     if not children:
         st.warning("Nu există pacienți copii în baza de date.")
     else:
-        patient_options_hist = {f"{p['nume']} (CNP: ...{p['cnp'][-4:]})": p for p in children}
+        # Patient selector — FULL CNP shown
+        patient_options_hist = {f"{p['nume']}  ·  CNP: {p['cnp']}": p for p in children}
         selected_name_hist = st.selectbox(
             "Selectează pacientul:",
             list(patient_options_hist.keys()),
@@ -349,7 +514,6 @@ with tab_export:
     if df_export.empty:
         st.warning("Nu există date pentru export.")
     else:
-        # Show preview
         df_preview = df_export[~df_export['Status'].isin(["🟢 La Zi", "🟢 Urmează"])]
         st.markdown(f"**Pacienți de exportat:** {len(df_preview)} (Scadenți + Restanțieri)")
         st.markdown(f"**Pagini Excel:** {max(1, (len(df_preview) + 12) // 13)}")
