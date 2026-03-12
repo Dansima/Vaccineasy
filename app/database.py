@@ -232,15 +232,27 @@ def delete_patient(patient_id: int) -> bool:
         session.close()
 
 
+from datetime import datetime, timedelta
+
 def _auto_vaccinate_patient(session: Session, patient_id: int, data_nasterii: datetime):
     """
     Auto-create vaccination records for all vaccines the child's age has surpassed.
-    Called during import so children are considered 'La Zi' by default.
+    SKIPS vaccines that are due in the CURRENT month, so they can be reported
+    in the Anexa 1 'Lot de bază' for this month.
     """
     varsta_zile = (datetime.now() - data_nasterii).days
+    current_year = datetime.now().year
+    current_month = datetime.now().month
 
     for target_days, (_, cod) in VACCINATION_SCHEDULE.items():
         if varsta_zile >= target_days:
+            # Check when this vaccine was actually due
+            due_date = data_nasterii + timedelta(days=target_days)
+            
+            # If due THIS month, do NOT auto-vaccinate. Leave it for 'Lot de bază'.
+            if due_date.year == current_year and due_date.month == current_month:
+                continue
+
             vaccine = session.query(Vaccine).filter_by(cod=cod).first()
             if not vaccine:
                 continue
