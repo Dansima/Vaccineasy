@@ -151,23 +151,29 @@ def convert_df_to_catagrafie(df_input: pd.DataFrame) -> bytes:
                 # Track which cells have been written to
                 written_cols = {0, 1, 2}
 
-                cat = row['_cod_cat']
                 is_restant = "RESTANT" in row['Status']
                 offset = 1 if is_restant else 0
 
-                if cat in col_map:
-                    cols = col_map[cat]
-                    if not isinstance(cols, list):
-                        cols = [cols]
-                    for c in cols:
-                        worksheet.write(current_row, c + offset, 'X', fmt_center)
-                        written_cols.add(c + offset)
-                        # Pneumococcal auto-fill for Hexavalent
-                        if 3 <= c <= 8:
-                            worksheet.write(current_row, c + 6 + offset, 'X', fmt_center)
-                            written_cols.add(c + 6 + offset)
+                # Get all vaccine codes for this patient
+                all_codes = row.get('_all_codes', [])
+                if not isinstance(all_codes, list):
+                    # Fallback for single _cod_cat
+                    all_codes = [row['_cod_cat']] if row.get('_cod_cat') else []
 
-                # Bug #5 fix: actually apply borders to empty cells
+                for cat in all_codes:
+                    if cat in col_map:
+                        cols = col_map[cat]
+                        if not isinstance(cols, list):
+                            cols = [cols]
+                        for c in cols:
+                            worksheet.write(current_row, c + offset, 'X', fmt_center)
+                            written_cols.add(c + offset)
+                            # Pneumococcal auto-fill for Hexavalent
+                            if 3 <= c <= 8:
+                                worksheet.write(current_row, c + 6 + offset, 'X', fmt_center)
+                                written_cols.add(c + 6 + offset)
+
+                # Apply borders to empty cells
                 for c in range(3, 25):
                     if c not in written_cols:
                         worksheet.write(current_row, c, '', fmt_empty_cell)

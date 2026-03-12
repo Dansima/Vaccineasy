@@ -158,10 +158,16 @@ def import_patients_from_excel(uploaded_file) -> dict:
                 patient = Patient(
                     cnp=cnp,
                     nume=nume_full,
-                    telefon=None, # no longer needed
+                    telefon=None,
                     data_nasterii=data_nasterii.date() if data_nasterii else None
                 )
                 session.add(patient)
+                session.flush()  # Get the patient ID before commit
+
+                # Auto-vaccinate: assume all age-appropriate vaccines are done
+                if data_nasterii:
+                    _auto_vaccinate_patient(session, patient.id, data_nasterii)
+
                 imported += 1
 
         session.commit()
@@ -216,6 +222,52 @@ def delete_patient(patient_id: int) -> bool:
         patient = session.query(Patient).filter_by(id=patient_id).first()
         if patient:
             session.delete(patient)
+            session.commit()
+            return True
+        return False
+    except Exception:
+        session.rollback()
+        return False
+    finally:
+        session.close()
+
+
+def _auto_vaccinate_patient(session: Session, patient_id: int, data_nasterii: datetime):
+    """
+    Auto-create vaccination records for all vaccines the child's age has surpassed.
+    Called during import so children are considered 'La Zi' by default.
+    """
+    varsta_zile = (datetime.now() - data_nasterii).days
+
+    for target_days, (_, cod) in VACCINATION_SCHEDULE.items():
+        if varsta_zile >= target_days:
+            vaccine = session.query(Vaccine).filter_by(cod=cod).first()
+            if not vaccine:
+                continue
+
+            # Skip if already recorded
+            existing = session.query(VaccinationRecord).filter_by(
+                patient_id=patient_id, vaccine_id=vaccine.id
+            ).first()
+            if existing:
+                continue
+
+            record = VaccinationRecord(
+                patient_id=patient_id,
+                vaccine_id=vaccine.id,
+                date_administered=datetime.now().date(),
+                notes="Auto-înregistrat la import"
+            )
+            session.add(record)
+
+
+def delete_vaccination_record(record_id: int) -> bool:
+    """Delete a vaccination record by ID (marks vaccine as not administered)."""
+    session = get_session()
+    try:
+        record = session.query(VaccinationRecord).filter_by(id=record_id).first()
+        if record:
+            session.delete(record)
             session.commit()
             return True
         return False

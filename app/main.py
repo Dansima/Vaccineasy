@@ -17,7 +17,7 @@ from app.database import (
     get_all_patients, get_children_patients,
     record_vaccination, get_vaccination_history,
     get_vaccinated_codes_for_patient, get_all_vaccines,
-    get_db_stats
+    get_db_stats, delete_vaccination_record
 )
 from app.excel_exporter import convert_df_to_catagrafie
 
@@ -197,7 +197,8 @@ init_db()
 def build_operative_list():
     """
     Build the operative patient list from the database.
-    Returns a DataFrame with vaccination statuses computed live.
+    Returns a DataFrame with ONE ROW PER PATIENT.
+    Vaccination statuses are consolidated: all pending vaccines listed together.
     """
     children = get_children_patients()
 
@@ -223,12 +224,14 @@ def build_operative_list():
                 "Vaccin Necesar": "-",
                 "Status": "🟢 La Zi",
                 "_cod_cat": None,
+                "_all_codes": [],
             })
             continue
 
         if any("Adult" in s[0] or "Eroare" in s[0] for s in all_statuses):
             continue
 
+        # Filter out vaccines already administered
         pending = [(s, v, c) for s, v, c in all_statuses if c not in vaccinated_codes]
 
         if not pending:
@@ -240,19 +243,33 @@ def build_operative_list():
                 "Vaccin Necesar": "-",
                 "Status": "🟢 La Zi",
                 "_cod_cat": None,
+                "_all_codes": [],
             })
             continue
 
-        for status_text, vaccin_name, cod_cat in pending:
-            rows.append({
-                "ID": patient["id"],
-                "Nume si Prenume": patient["nume"],
-                "CNP": patient["cnp"],
-                "Vârsta": format_varsta(dn),
-                "Vaccin Necesar": vaccin_name,
-                "Status": status_text,
-                "_cod_cat": cod_cat,
-            })
+        # Consolidate: ONE row per patient with all pending vaccines
+        vaccine_names = [v for _, v, _ in pending]
+        vaccine_codes = [c for _, _, c in pending]
+
+        # Determine worst status (priority: RESTANT > Scadent > Urmează)
+        statuses = [s for s, _, _ in pending]
+        if any("RESTANT" in s for s in statuses):
+            worst_status = "🔴 RESTANT"
+        elif any("Scadent" in s for s in statuses):
+            worst_status = "🟡 Scadent"
+        else:
+            worst_status = "🟢 Urmează"
+
+        rows.append({
+            "ID": patient["id"],
+            "Nume si Prenume": patient["nume"],
+            "CNP": patient["cnp"],
+            "Vârsta": format_varsta(dn),
+            "Vaccin Necesar": ", ".join(vaccine_names),
+            "Status": worst_status,
+            "_cod_cat": vaccine_codes[0] if vaccine_codes else None,
+            "_all_codes": vaccine_codes,
+        })
 
     return pd.DataFrame(rows)
 
@@ -500,6 +517,24 @@ with tab_history:
             })
             cols_hist = ["Vaccin", "Data Administrării", "Nr. Lot", "Administrat de", "Observații"]
             st.dataframe(df_history[cols_hist], use_container_width=True, hide_index=True)
+
+            # Delete vaccination record
+            st.markdown("#### ⚠️ Marchează vaccin ca neadministrat")
+            st.caption("Ștergând o înregistrare, vaccinul va fi marcat ca restant pentru pacient.")
+            delete_options = {f"{h['vaccine_name']} ({h['date_administered']})": h['id'] for h in history}
+            selected_delete = st.selectbox(
+                "Selectează vaccinarea de șters:",
+                list(delete_options.keys()),
+                key="delete_vax"
+            )
+            if st.button("🗑️ Șterge Înregistrarea", type="primary"):
+                record_id = delete_options[selected_delete]
+                if delete_vaccination_record(record_id):
+                    st.success("Înregistrarea a fost ștearsă. Vaccinul va apărea acum ca restant.")
+                    st.cache_data.clear()
+                    st.rerun()
+                else:
+                    st.error("Eroare la ștergerea înregistrării.")
         else:
             st.info("Nicio vaccinare înregistrată încă pentru acest pacient.")
 
