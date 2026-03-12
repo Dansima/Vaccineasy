@@ -45,6 +45,26 @@ def init_db():
     engine = get_engine()
     Base.metadata.create_all(engine)
     _seed_vaccines()
+    _heal_existing_patients()
+
+def _heal_existing_patients():
+    """
+    Ensure all existing patients have their retroactive auto-vaccinations up to date.
+    This heals older database entries when new vaccines (like DTPa-VPI 6 ani) are added to the schedule.
+    """
+    session = get_session()
+    try:
+        from app.models import Patient
+        patients = session.query(Patient).all()
+        for p in patients:
+            if p.data_nasterii:
+                dn = datetime.combine(p.data_nasterii, datetime.min.time())
+                _auto_vaccinate_patient(session, p.id, dn)
+        session.commit()
+    except Exception:
+        session.rollback()
+    finally:
+        session.close()
 
 
 def _seed_vaccines():
@@ -154,6 +174,11 @@ def import_patients_from_excel(uploaded_file) -> dict:
                 if data_nasterii:
                     existing.data_nasterii = data_nasterii.date()
                 existing.updated_at = datetime.now()
+                
+                # Retroactive auto-vaccination to self-heal newly added vaccines to DB
+                if data_nasterii:
+                    _auto_vaccinate_patient(session, existing.id, data_nasterii)
+                    
                 updated += 1
             else:
                 # Insert
@@ -166,7 +191,7 @@ def import_patients_from_excel(uploaded_file) -> dict:
                 session.add(patient)
                 session.flush()  # Get the patient ID before commit
 
-                # Auto-vaccinate: assume all age-appropriate vaccines are done
+                # Auto-vaccinate new patient: assume all age-appropriate vaccines are done
                 if data_nasterii:
                     _auto_vaccinate_patient(session, patient.id, data_nasterii)
 
