@@ -193,7 +193,6 @@ init_db()
 # =============================================================
 # HELPER: Build the operative list from DB patients
 # =============================================================
-@st.cache_data(ttl=30)
 def build_operative_list():
     """
     Build the operative patient list from the database.
