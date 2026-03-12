@@ -19,8 +19,9 @@ def convert_df_to_catagrafie(df_input: pd.DataFrame) -> bytes:
     """
     output = io.BytesIO()
 
-    # Filter: export only Scadent and Restant
-    df_export = df_input[~df_input['Status'].isin(["🟢 La Zi", "🟢 Urmează"])].copy()
+    # Filter: export out only "La Zi".
+    # This means Scadent, Restant, AND Urmează (upcoming) are exported.
+    df_export = df_input[~df_input['Status'].isin(["🟢 La Zi"])].copy()
 
     # Paginate: 13 rows per page
     LIMITA_PAGINA = 13

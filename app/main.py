@@ -409,62 +409,86 @@ with tab_dashboard:
             st.info("Niciun pacient nu corespunde filtrelor selectate.")
 
 
-# ---- TAB 2: RECORD VACCINATION ----
+# ---- TAB 2: VACCINATION MANAGEMENT ----
 with tab_record:
-    st.subheader("💊 Înregistrare Vaccinare")
-    st.markdown("Selectează pacientul și vaccinul administrat.")
+    st.subheader("💊 Gestiune Vaccinări")
+    st.markdown("Selectează pacientul și bifează/debifează vaccinurile administrate.")
 
     children = get_children_patients()
 
     if not children:
         st.warning("Nu există pacienți copii în baza de date.")
     else:
-        # Patient selector — FULL CNP shown
+        # Patient selector
         patient_options = {f"{p['nume']}  ·  CNP: {p['cnp']}": p for p in children}
         selected_name = st.selectbox("Pacient:", list(patient_options.keys()))
         selected_patient = patient_options[selected_name]
 
-        st.markdown(f"**Vârstă:** {format_varsta(selected_patient['data_nasterii'])}")
+        dn = selected_patient['data_nasterii']
+        st.markdown(f"**Vârstă:** {format_varsta(dn)}")
 
-        vaccinated_codes = get_vaccinated_codes_for_patient(selected_patient["id"])
-        if vaccinated_codes:
-            st.success(f"Vaccinuri deja administrate: {', '.join(vaccinated_codes)}")
+        if not dn:
+            st.error("CNP invalid — nu se poate determina vârsta.")
+        else:
+            varsta_zile = (datetime.now() - dn).days
 
-        st.markdown("---")
+            # Get current vaccination records
+            vaccinated_codes = get_vaccinated_codes_for_patient(selected_patient["id"])
+            vaccines = get_all_vaccines()
 
-        vaccines = get_all_vaccines()
-        vaccine_options = {f"{v['nume']} ({v['cod']})": v for v in vaccines}
-        selected_vaccine_name = st.selectbox("Vaccin administrat:", list(vaccine_options.keys()))
-        selected_vaccine = vaccine_options[selected_vaccine_name]
+            st.markdown("---")
+            st.markdown("#### Calendarul de Vaccinare")
+            st.caption("✅ = Vaccinat | ❌ = Nevaccinat · Bifează/debifează pentru a actualiza statusul.")
 
-        if selected_vaccine['cod'] in vaccinated_codes:
-            st.warning("⚠️ Acest vaccin a fost deja înregistrat. Salvarea va actualiza înregistrarea.")
+            changes_made = False
 
-        col1, col2 = st.columns(2)
-        with col1:
-            date_admin = st.date_input("Data administrării:", value=datetime.now().date())
-        with col2:
-            lot_number = st.text_input("Număr lot:", placeholder="ex: AB1234")
+            for v in vaccines:
+                is_due = varsta_zile >= v['target_age_days']
+                is_vaccinated = v['cod'] in vaccinated_codes
 
-        administered_by = st.text_input("Administrat de:", placeholder="Dr. Popescu")
-        notes = st.text_area("Observații:", placeholder="Opțional", height=80)
+                # Determine label with age info
+                age_months = v['target_age_days'] / 30.44
+                if age_months < 12:
+                    age_label = f"{age_months:.0f} luni"
+                else:
+                    age_label = f"{age_months / 12:.0f} ani"
 
-        if st.button("💾 Salvează Vaccinarea", type="primary", use_container_width=True):
-            result = record_vaccination(
-                patient_id=selected_patient["id"],
-                vaccine_cod=selected_vaccine["cod"],
-                date_administered=date_admin,
-                lot_number=lot_number if lot_number else None,
-                administered_by=administered_by if administered_by else None,
-                notes=notes if notes else None,
-            )
+                if is_due:
+                    label = f"{v['nume']}  ·  Programat: {age_label}"
+                else:
+                    days_until = v['target_age_days'] - varsta_zile
+                    label = f"⏳ {v['nume']}  ·  Programat: {age_label} (peste {days_until} zile)"
 
-            if result["success"]:
-                st.success(result["message"])
+                # Checkbox for each vaccine
+                new_state = st.checkbox(
+                    label,
+                    value=is_vaccinated,
+                    key=f"vax_{selected_patient['id']}_{v['cod']}",
+                    disabled=not is_due  # Can't vaccinate for future vaccines
+                )
+
+                # Handle state changes
+                if new_state != is_vaccinated:
+                    changes_made = True
+                    if new_state:
+                        # Record vaccination
+                        record_vaccination(
+                            patient_id=selected_patient["id"],
+                            vaccine_cod=v['cod'],
+                            date_administered=datetime.now().date(),
+                            notes="Înregistrat manual"
+                        )
+                    else:
+                        # Delete vaccination record
+                        history = get_vaccination_history(selected_patient["id"])
+                        for h in history:
+                            if h['vaccine_cod'] == v['cod']:
+                                delete_vaccination_record(h['id'])
+                                break
+
+            if changes_made:
                 st.cache_data.clear()
-                st.balloons()
-            else:
-                st.error(result["message"])
+                st.rerun()
 
 
 # ---- TAB 3: VACCINATION HISTORY ----
@@ -517,26 +541,8 @@ with tab_history:
             })
             cols_hist = ["Vaccin", "Data Administrării", "Nr. Lot", "Administrat de", "Observații"]
             st.dataframe(df_history[cols_hist], use_container_width=True, hide_index=True)
-
-            # Delete vaccination record
-            st.markdown("#### ⚠️ Marchează vaccin ca neadministrat")
-            st.caption("Ștergând o înregistrare, vaccinul va fi marcat ca restant pentru pacient.")
-            delete_options = {f"{h['vaccine_name']} ({h['date_administered']})": h['id'] for h in history}
-            selected_delete = st.selectbox(
-                "Selectează vaccinarea de șters:",
-                list(delete_options.keys()),
-                key="delete_vax"
-            )
-            if st.button("🗑️ Șterge Înregistrarea", type="primary"):
-                record_id = delete_options[selected_delete]
-                if delete_vaccination_record(record_id):
-                    st.success("Înregistrarea a fost ștearsă. Vaccinul va apărea acum ca restant.")
-                    st.cache_data.clear()
-                    st.rerun()
-                else:
-                    st.error("Eroare la ștergerea înregistrării.")
         else:
-            st.info("Nicio vaccinare înregistrată încă pentru acest pacient.")
+            st.info("Nicio vaccinare înregistrată încă. Mergi la tab-ul 'Gestiune Vaccinări' pentru a bifa/debifa vaccinurile.")
 
 
 # ---- TAB 4: EXPORT ----
@@ -567,8 +573,8 @@ with tab_export:
         if df_export.empty:
             st.warning(f"Nu există copii născuți în luna {LUNI_RO[luna_curenta]} în baza de date.")
         else:
-            df_preview = df_export[~df_export['Status'].isin(["🟢 La Zi", "🟢 Urmează"])]
-            st.markdown(f"**Pacienți de exportat:** {len(df_preview)} (Scadenți + Restanțieri)")
+            df_preview = df_export[~df_export['Status'].isin(["🟢 La Zi"])]
+            st.markdown(f"**Pacienți de exportat:** {len(df_preview)} (Urmează + Scadenți + Restanțieri)")
             st.markdown(f"**Pagini Excel:** {max(1, (len(df_preview) + 12) // 13)}")
 
             col_btn, col_info = st.columns([1, 2])

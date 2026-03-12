@@ -136,7 +136,7 @@ VACCINATION_SCHEDULE = {
 }
 
 # Status thresholds (in days)
-UPCOMING_WINDOW = 14    # Days before target to show as "Urmează"
+UPCOMING_WINDOW = 31    # Days before target to show as "Urmează"
 DUE_WINDOW = 30         # Days after target to show as "Scadent"
 OVERDUE_LIMIT = 500     # Days after target before we stop flagging as "Restant"
 
