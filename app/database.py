@@ -101,13 +101,19 @@ def import_patients_from_excel(uploaded_file) -> dict:
 
     # Normalize column names
     df.columns = [str(c).lower().strip() for c in df.columns]
-    col_nume = next((c for c in df.columns if 'nume' in c), None)
+    
+    # Identify Nume, Prenume, CNP
+    col_nume = next((c for c in df.columns if c == 'nume'), None)
+    col_prenume = next((c for c in df.columns if c == 'prenume'), None)
     col_cnp = next((c for c in df.columns if 'cnp' in c), None)
-    col_tel = next((c for c in df.columns if 'telefon' in c or 'tel' in c), None)
 
-    if not col_nume or not col_cnp:
+    if not col_cnp:
         return {"imported": 0, "updated": 0, "skipped": 0,
-                "errors": [f"Lipsesc coloanele 'Nume' și 'CNP'. Coloane găsite: {list(df.columns)}"]}
+                "errors": [f"Lipsește coloana 'CNP'. Coloane găsite: {list(df.columns)}"]}
+    
+    if not col_nume and not col_prenume:
+        return {"imported": 0, "updated": 0, "skipped": 0,
+                "errors": [f"Lipsește 'Nume' sau 'Prenume'. Coloane găsite: {list(df.columns)}"]}
 
     session = get_session()
     imported = 0
@@ -119,8 +125,16 @@ def import_patients_from_excel(uploaded_file) -> dict:
         for _, row in df.iterrows():
             cnp = str(row[col_cnp]).strip()
             cnp = ''.join(filter(str.isdigit, cnp))
-            nume = str(row[col_nume]).strip()
-            telefon = str(row[col_tel]).strip() if col_tel and pd.notna(row.get(col_tel)) else None
+            
+            # Retrieve Nume and Prenume
+            nume_part = str(row[col_nume]).strip() if col_nume and pd.notna(row.get(col_nume)) else ""
+            prenume_part = str(row[col_prenume]).strip() if col_prenume and pd.notna(row.get(col_prenume)) else ""
+            
+            # Concatenate Nume + Prenume, falling back gracefully
+            nume_full = " ".join(filter(None, [nume_part, prenume_part]))
+            
+            if not nume_full:
+                nume_full = "Necunoscut"
 
             if len(cnp) < 13:
                 skipped += 1
@@ -134,9 +148,7 @@ def import_patients_from_excel(uploaded_file) -> dict:
 
             if existing:
                 # Update
-                existing.nume = nume
-                if telefon:
-                    existing.telefon = telefon
+                existing.nume = nume_full
                 if data_nasterii:
                     existing.data_nasterii = data_nasterii.date()
                 existing.updated_at = datetime.now()
@@ -145,8 +157,8 @@ def import_patients_from_excel(uploaded_file) -> dict:
                 # Insert
                 patient = Patient(
                     cnp=cnp,
-                    nume=nume,
-                    telefon=telefon,
+                    nume=nume_full,
+                    telefon=None, # no longer needed
                     data_nasterii=data_nasterii.date() if data_nasterii else None
                 )
                 session.add(patient)
