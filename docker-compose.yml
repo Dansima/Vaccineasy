@@ -1,0 +1,18 @@
+services:
+  vaccineasy:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: vaccineasy
+    ports:
+      - "8501:8501"
+    volumes:
+      # Persistent volume for the SQLite database
+      - vaccineasy_data:/app/data
+    environment:
+      - VACCINEASY_DB_DIR=/app/data
+    restart: unless-stopped
+
+volumes:
+  vaccineasy_data:
+    driver: local

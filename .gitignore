@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual Environment
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Data (local database and test files)
+data/*.db
+data/*.sqlite
+*.xlsx
+*.xls
+*.csv
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Docker
+docker/data/
+
+# Streamlit
+.streamlit/secrets.toml
