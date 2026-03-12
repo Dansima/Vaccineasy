@@ -131,7 +131,8 @@ VACCINATION_SCHEDULE = {
     4:   ("Hexavalent (4 luni)", "Hexa_4"),
     11:  ("Hexavalent (11 luni)", "Hexa_11"),
     12:  ("ROR (12 luni)", "ROR_12"),
-    60:  ("ROR + Tetra (5 ani)", "ROR_Tetra_5"),
+    60:  ("ROR (5 ani)", "ROR_Tetra_5"),
+    72:  ("DTPa-VPI (6 ani)", "Tetra_6"),
     168: ("dTPa (14 ani)", "dTPa_14"),
 }
 

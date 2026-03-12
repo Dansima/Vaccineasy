@@ -48,21 +48,23 @@ def init_db():
 
 
 def _seed_vaccines():
-    """Populate the vaccines table with Romania's national schedule if empty."""
+    """Populate the vaccines table with Romania's national schedule if missing."""
     session = get_session()
     try:
-        existing = session.query(Vaccine).count()
-        if existing > 0:
-            return  # Already seeded
-
-        for target_days, (name, code) in VACCINATION_SCHEDULE.items():
-            vaccine = Vaccine(
-                cod=code,
-                nume=name,
-                target_age_days=target_days,
-                description=f"Vaccin programat la {target_days} zile de viață"
-            )
-            session.add(vaccine)
+        from app.business_logic import VACCINATION_SCHEDULE
+        for target_months, (name, code) in VACCINATION_SCHEDULE.items():
+            existing = session.query(Vaccine).filter_by(cod=code).first()
+            if not existing:
+                vaccine = Vaccine(
+                    cod=code,
+                    nume=name,
+                    target_age_days=target_months,
+                    description=f"Vaccin programat la {target_months} luni de viață"
+                )
+                session.add(vaccine)
+            else:
+                existing.nume = name
+                existing.target_age_days = target_months
 
         session.commit()
     except Exception:

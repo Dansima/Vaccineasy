@@ -605,12 +605,6 @@ with tab_export:
                     due_date = get_exact_due_date(dn, target_months)
                     if due_date.year == an_curent and due_date.month == luna_curenta:
                         return True
-                        
-                    # Regula aditionala pt DTPa-VPI la 6 ani (care imparte acelasi cod ROR_Tetra_5 in prezent)
-                    if cod == "ROR_Tetra_5":
-                        due_date_6 = get_exact_due_date(dn, 72) # 6 ani = 72 luni
-                        if due_date_6.year == an_curent and due_date_6.month == luna_curenta:
-                            return True
             return False
 
         df_export = df_export[df_export.apply(has_vaccine_due_this_month, axis=1)].copy()

@@ -138,7 +138,7 @@ def convert_df_to_catagrafie(df_input: pd.DataFrame) -> bytes:
             # --- Populate Data ---
             col_map = {
                 'Hexa_2': 3, 'Hexa_4': 5, 'Hexa_11': 7,
-                'ROR_12': 15, 'ROR_Tetra_5': [17, 19], 'dTPa_14': 21
+                'ROR_12': 15, 'ROR_Tetra_5': 17, 'Tetra_6': 19, 'dTPa_14': 21
             }
 
             current_row = r_start + 3
@@ -163,44 +163,9 @@ def convert_df_to_catagrafie(df_input: pd.DataFrame) -> bytes:
 
                 for cat in all_codes:
                     if cat in col_map:
-                        # Special handling for ROR_Tetra_5 to split Xs based on age
-                        if cat == 'ROR_Tetra_5':
-                            cols = []
-                            # Calculate child's age in days relative to current date
-                            dn = row.get('Vârsta_datetime')
-                            if not dn:
-                                # Fallback parse from CNP
-                                cnp_val = str(row['CNP'])
-                                try:
-                                    an = int(cnp_val[1:3])
-                                    s = int(cnp_val[0])
-                                    if s in (5, 6): an += 2000
-                                    elif s in (1, 2): an += 1900
-                                    elif s in (7, 8): an += 2000 if an <= datetime.now().year % 100 else 1900
-                                    
-                                    ll = int(cnp_val[3:5])
-                                    zz = int(cnp_val[5:7])
-                                    dn = datetime(an, ll, zz)
-                                except:
-                                    dn = datetime.now() # Fallback
-
-                            age_days = (datetime.now() - dn).days
-
-                            # If child is around 5 years (between 1825 and 2150 days roughly), mark ROR
-                            # Or if they are older but still have RESTANT status for it
-                            if age_days >= 1825:
-                                cols.append(17) # ROR 5 ani
-                            
-                            # If child is 6 years or older, mark DTPa-VPI
-                            if age_days >= 2190:
-                                cols.append(19) # DTPa-VPI 6 ani
-                                
-                            if not cols:
-                                cols = [17, 19] # Safe fallback
-                        else:
-                            cols = col_map[cat]
-                            if not isinstance(cols, list):
-                                cols = [cols]
+                        cols = col_map[cat]
+                        if not isinstance(cols, list):
+                            cols = [cols]
 
                         for c in cols:
                             worksheet.write(current_row, c + offset, 'X', fmt_center)
