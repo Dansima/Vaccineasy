@@ -507,26 +507,44 @@ with tab_history:
 # ---- TAB 4: EXPORT ----
 with tab_export:
     st.subheader("📥 Export Catagrafie (Anexa 1)")
-    st.markdown("Generează raportul oficial cu paginare automată (13 rânduri/pagină).")
+
+    luna_curenta = datetime.now().month
+    an_curent = datetime.now().year
+    LUNI_RO = {1: "Ianuarie", 2: "Februarie", 3: "Martie", 4: "Aprilie",
+               5: "Mai", 6: "Iunie", 7: "Iulie", 8: "August",
+               9: "Septembrie", 10: "Octombrie", 11: "Noiembrie", 12: "Decembrie"}
+    st.markdown(f"Raport pentru copiii născuți în **{LUNI_RO[luna_curenta]} {an_curent}** · Paginare automată (13 rânduri/pagină).")
 
     df_export = build_operative_list()
 
     if df_export.empty:
         st.warning("Nu există date pentru export.")
     else:
-        df_preview = df_export[~df_export['Status'].isin(["🟢 La Zi", "🟢 Urmează"])]
-        st.markdown(f"**Pacienți de exportat:** {len(df_preview)} (Scadenți + Restanțieri)")
-        st.markdown(f"**Pagini Excel:** {max(1, (len(df_preview) + 12) // 13)}")
+        # Filter: keep only children born in the current month (CNP digits 4-5 = birth month)
+        def cnp_born_in_current_month(cnp: str) -> bool:
+            try:
+                return int(str(cnp)[3:5]) == luna_curenta
+            except (ValueError, IndexError):
+                return False
 
-        col_btn, col_info = st.columns([1, 2])
-        with col_btn:
-            excel_data = convert_df_to_catagrafie(df_export)
-            st.download_button(
-                "📥 Descarcă Anexa 1 (Paginată)",
-                data=excel_data,
-                file_name=f'Catagrafie_Paginata_{datetime.now().strftime("%B_%Y")}.xlsx',
-                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                type="primary"
-            )
-        with col_info:
-            st.info("💡 Exportul generează automat mai multe foi în Excel dacă ai mai mult de 13 copii.")
+        df_export = df_export[df_export['CNP'].apply(cnp_born_in_current_month)].copy()
+
+        if df_export.empty:
+            st.warning(f"Nu există copii născuți în luna {LUNI_RO[luna_curenta]} în baza de date.")
+        else:
+            df_preview = df_export[~df_export['Status'].isin(["🟢 La Zi", "🟢 Urmează"])]
+            st.markdown(f"**Pacienți de exportat:** {len(df_preview)} (Scadenți + Restanțieri)")
+            st.markdown(f"**Pagini Excel:** {max(1, (len(df_preview) + 12) // 13)}")
+
+            col_btn, col_info = st.columns([1, 2])
+            with col_btn:
+                excel_data = convert_df_to_catagrafie(df_export)
+                st.download_button(
+                    "📥 Descarcă Anexa 1 (Paginată)",
+                    data=excel_data,
+                    file_name=f'Catagrafie_Paginata_{LUNI_RO[luna_curenta]}_{an_curent}.xlsx',
+                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    type="primary"
+                )
+            with col_info:
+                st.info("💡 Exportul generează automat mai multe foi în Excel dacă ai mai mult de 13 copii.")
