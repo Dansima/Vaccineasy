@@ -23,6 +23,10 @@ def convert_df_to_catagrafie(df_input: pd.DataFrame) -> bytes:
     # This means Scadent, Restant, AND Urmează (upcoming) are exported.
     df_export = df_input[~df_input['Status'].isin(["🟢 La Zi"])].copy()
 
+    # Sort descending by Vârsta_datetime (youngest first = largest datetime)
+    if 'Vârsta_datetime' in df_export.columns:
+        df_export = df_export.sort_values(by='Vârsta_datetime', ascending=False)
+
     # Paginate: 13 rows per page
     LIMITA_PAGINA = 13
     chunks = [df_export[i:i + LIMITA_PAGINA] for i in range(0, len(df_export), LIMITA_PAGINA)]
