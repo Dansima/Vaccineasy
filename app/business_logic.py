@@ -195,8 +195,8 @@ def get_all_vaccination_statuses(data_nasterii: Optional[datetime]):
         elif 0 <= diff <= DUE_WINDOW:
             # Due: within 30 days after target
             results.append(("🟡 Scadent", nume_vaccin, cod_cat))
-        elif DUE_WINDOW < diff < OVERDUE_LIMIT:
-            # Overdue: more than 30 days but less than 500 days past target
+        elif diff > DUE_WINDOW:
+            # Overdue: any time past the due window
             results.append(("🔴 RESTANT", nume_vaccin, cod_cat))
 
     return results
