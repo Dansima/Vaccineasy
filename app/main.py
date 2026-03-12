@@ -442,21 +442,30 @@ with tab_record:
 
             changes_made = False
 
+            from app.business_logic import VACCINATION_SCHEDULE, get_exact_due_date
+            
             for v in vaccines:
-                is_due = varsta_zile >= v['target_age_days']
+                # Find target_months from schedule
+                target_months = next((tm for tm, (_, c) in VACCINATION_SCHEDULE.items() if c == v['cod']), 0)
+                if target_months == 0:
+                    continue  # Should not happen
+                    
+                due_date = get_exact_due_date(dn, target_months)
+                is_due = datetime.now() >= due_date
                 is_vaccinated = v['cod'] in vaccinated_codes
 
                 # Determine label with age info
-                age_months = v['target_age_days'] / 30.44
-                if age_months < 12:
-                    age_label = f"{age_months:.0f} luni"
+                if target_months < 12:
+                    age_label = f"{target_months} luni"
+                elif target_months % 12 == 0:
+                    age_label = f"{target_months // 12} ani"
                 else:
-                    age_label = f"{age_months / 12:.0f} ani"
+                    age_label = f"{target_months // 12} ani și {target_months % 12} luni"
 
                 if is_due:
                     label = f"{v['nume']}  ·  Programat: {age_label}"
                 else:
-                    days_until = v['target_age_days'] - varsta_zile
+                    days_until = (due_date - datetime.now()).days
                     label = f"⏳ {v['nume']}  ·  Programat: {age_label} (peste {days_until} zile)"
 
                 # Checkbox for each vaccine
@@ -586,20 +595,20 @@ with tab_export:
             except Exception:
                 return False
 
-            from app.business_logic import VACCINATION_SCHEDULE
+            from app.business_logic import VACCINATION_SCHEDULE, get_exact_due_date
             from datetime import timedelta
 
             pending_codes = row.get('_all_codes', [])
             
-            for target_days, (_, cod) in VACCINATION_SCHEDULE.items():
+            for target_months, (_, cod) in VACCINATION_SCHEDULE.items():
                 if cod in pending_codes:
-                    due_date = dn + timedelta(days=target_days)
+                    due_date = get_exact_due_date(dn, target_months)
                     if due_date.year == an_curent and due_date.month == luna_curenta:
                         return True
                         
                     # Regula aditionala pt DTPa-VPI la 6 ani (care imparte acelasi cod ROR_Tetra_5 in prezent)
                     if cod == "ROR_Tetra_5":
-                        due_date_6 = dn + timedelta(days=2190) # 6 ani = 2190 zile
+                        due_date_6 = get_exact_due_date(dn, 72) # 6 ani = 72 luni
                         if due_date_6.year == an_curent and due_date_6.month == luna_curenta:
                             return True
             return False

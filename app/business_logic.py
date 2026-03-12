@@ -125,14 +125,14 @@ def format_varsta(data_nasterii: Optional[datetime]) -> str:
 # =============================================================
 
 # Romania's National Vaccination Schedule
-# Key = target age in days, Value = (vaccine name, category code)
+# Key = target age in MONTHS, Value = (vaccine name, category code)
 VACCINATION_SCHEDULE = {
-    60:   ("Hexavalent (2 luni)", "Hexa_2"),
-    120:  ("Hexavalent (4 luni)", "Hexa_4"),
-    330:  ("Hexavalent (11 luni)", "Hexa_11"),
-    365:  ("ROR (12 luni)", "ROR_12"),
-    1825: ("ROR + Tetra (5 ani)", "ROR_Tetra_5"),
-    5110: ("dTPa (14 ani)", "dTPa_14"),
+    2:   ("Hexavalent (2 luni)", "Hexa_2"),
+    4:   ("Hexavalent (4 luni)", "Hexa_4"),
+    11:  ("Hexavalent (11 luni)", "Hexa_11"),
+    12:  ("ROR (12 luni)", "ROR_12"),
+    60:  ("ROR + Tetra (5 ani)", "ROR_Tetra_5"),
+    168: ("dTPa (14 ani)", "dTPa_14"),
 }
 
 # Status thresholds (in days)
@@ -164,6 +164,19 @@ def get_single_vaccination_status(data_nasterii: Optional[datetime]):
     return statuses[0]
 
 
+from calendar import monthrange
+
+def get_exact_due_date(dn: datetime, target_months: int) -> datetime:
+    """
+    Calculates the exact calendar due date by adding target_months to the birth date.
+    """
+    month = dn.month - 1 + target_months
+    year = dn.year + month // 12
+    month = month % 12 + 1
+    # Handle end of month edge cases (e.g. Jan 31 + 1 month -> Feb 28)
+    day = min(dn.day, monthrange(year, month)[1])
+    return datetime(year, month, day)
+
 def get_all_vaccination_statuses(data_nasterii: Optional[datetime]):
     """
     Returns ALL pending vaccination statuses for a child.
@@ -179,23 +192,23 @@ def get_all_vaccination_statuses(data_nasterii: Optional[datetime]):
         return [("Eroare CNP", "-", None)]
 
     azi = datetime.now()
-    varsta_zile = (azi - data_nasterii).days
-    varsta_ani = varsta_zile / 365.25
+    varsta_ani = (azi - data_nasterii).days / 365.25
 
     if varsta_ani > MAX_AGE_YEARS:
         return [("🟢 Adult (Ignorat)", "-", None)]
 
     results = []
-    for zi_tinta, (nume_vaccin, cod_cat) in VACCINATION_SCHEDULE.items():
-        diff = varsta_zile - zi_tinta
+    for target_months, (nume_vaccin, cod_cat) in VACCINATION_SCHEDULE.items():
+        due_date = get_exact_due_date(data_nasterii, target_months)
+        diff_days = (azi - due_date).days
 
-        if -UPCOMING_WINDOW <= diff < 0:
-            # Upcoming: within 14 days before target
+        if -UPCOMING_WINDOW <= diff_days < 0:
+            # Upcoming: within 31 days before target
             results.append(("🟢 Urmează", nume_vaccin, cod_cat))
-        elif 0 <= diff <= DUE_WINDOW:
+        elif 0 <= diff_days <= DUE_WINDOW:
             # Due: within 30 days after target
             results.append(("🟡 Scadent", nume_vaccin, cod_cat))
-        elif diff > DUE_WINDOW:
+        elif diff_days > DUE_WINDOW:
             # Overdue: any time past the due window
             results.append(("🔴 RESTANT", nume_vaccin, cod_cat))
 

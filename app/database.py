@@ -234,21 +234,21 @@ def delete_patient(patient_id: int) -> bool:
 
 from datetime import datetime, timedelta
 
+from app.business_logic import VACCINATION_SCHEDULE, get_exact_due_date
+
 def _auto_vaccinate_patient(session: Session, patient_id: int, data_nasterii: datetime):
     """
     Auto-create vaccination records for all vaccines the child's age has surpassed.
     SKIPS vaccines that are due in the CURRENT month, so they can be reported
     in the Anexa 1 'Lot de bază' for this month.
     """
-    varsta_zile = (datetime.now() - data_nasterii).days
     current_year = datetime.now().year
     current_month = datetime.now().month
 
-    for target_days, (_, cod) in VACCINATION_SCHEDULE.items():
-        if varsta_zile >= target_days:
-            # Check when this vaccine was actually due
-            due_date = data_nasterii + timedelta(days=target_days)
-            
+    for target_months, (_, cod) in VACCINATION_SCHEDULE.items():
+        due_date = get_exact_due_date(data_nasterii, target_months)
+        
+        if datetime.now() >= due_date:
             # If due THIS month, do NOT auto-vaccinate. Leave it for 'Lot de bază'.
             if due_date.year == current_year and due_date.month == current_month:
                 continue

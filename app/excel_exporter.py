@@ -180,12 +180,10 @@ def convert_df_to_catagrafie(df_input: pd.DataFrame) -> bytes:
                                     
                                     ll = int(cnp_val[3:5])
                                     zz = int(cnp_val[5:7])
-                                    from datetime import datetime
                                     dn = datetime(an, ll, zz)
                                 except:
                                     dn = datetime.now() # Fallback
 
-                            from datetime import datetime
                             age_days = (datetime.now() - dn).days
 
                             # If child is around 5 years (between 1825 and 2150 days roughly), mark ROR
