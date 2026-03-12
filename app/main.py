@@ -561,17 +561,47 @@ with tab_export:
     if df_export.empty:
         st.warning("Nu există date pentru export.")
     else:
-        # Filter: keep only children born in the current month (CNP digits 4-5 = birth month)
-        def cnp_born_in_current_month(cnp: str) -> bool:
+        # Filter: Keep children who have at least one vaccine DUE THIS MONTH
+        # OR who are already RESTANT (overdue from previous months)
+        
+        def has_vaccine_due_this_month(row) -> bool:
+            if "RESTANT" in row['Status']:
+                return True
+                
+            dn = row.get('Vârsta_datetime') # We need actual datetime to calculate, let's parse CNP again
+            cnp_val = str(row['CNP'])
+            
             try:
-                return int(str(cnp)[3:5]) == luna_curenta
-            except (ValueError, IndexError):
+                # Basic CNP to date conversion since we don't have raw datetime in row directly
+                an = int(cnp_val[1:3])
+                s = int(cnp_val[0])
+                if s in (5, 6): an += 2000
+                elif s in (1, 2): an += 1900
+                elif s in (7, 8): an += 2000 if an <= datetime.now().year % 100 else 1900
+                else: return False
+                
+                ll = int(cnp_val[3:5])
+                zz = int(cnp_val[5:7])
+                dn = datetime(an, ll, zz)
+            except Exception:
                 return False
 
-        df_export = df_export[df_export['CNP'].apply(cnp_born_in_current_month)].copy()
+            from app.business_logic import VACCINATION_SCHEDULE
+            from datetime import timedelta
+
+            pending_codes = row.get('_all_codes', [])
+            
+            for target_days, (_, cod) in VACCINATION_SCHEDULE.items():
+                if cod in pending_codes:
+                    due_date = dn + timedelta(days=target_days)
+                    if due_date.year == an_curent and due_date.month == luna_curenta:
+                        return True
+            return False
+
+        df_export = df_export[df_export.apply(has_vaccine_due_this_month, axis=1)].copy()
 
         if df_export.empty:
-            st.warning(f"Nu există copii născuți în luna {LUNI_RO[luna_curenta]} în baza de date.")
+            st.warning(f"Nu există copii cu vaccinări programate sau restante în luna {LUNI_RO[luna_curenta]}.")
         else:
             df_preview = df_export[~df_export['Status'].isin(["🟢 La Zi"])]
             st.markdown(f"**Pacienți de exportat:** {len(df_preview)} (Urmează + Scadenți + Restanțieri)")
