@@ -464,23 +464,19 @@ with tab_record:
                     else:
                         age_label = f"{target_months // 12} ani și {target_months % 12} luni"
 
-                    # Add emojis right next to the vaccine
-                    status_emoji = "✅" if is_vaccinated else "❌"
-
                     if is_due:
-                        label = f"{status_emoji} {v['nume']}  ·  Programat: {age_label}"
+                        label = f"{v['nume']}  ·  Programat: {age_label}"
                     else:
                         days_until = (due_date - datetime.now()).days
                         label = f"⏳ {v['nume']}  ·  Programat: {age_label} (peste {days_until} zile)"
 
                     # Checkbox for each vaccine
-                    new_state = st.checkbox(
+                    st.checkbox(
                         label,
                         value=is_vaccinated,
-                        key=f"chk_{v['cod']}",
+                        key=f"chk_vax_{v['cod']}",
                         disabled=not is_due
                     )
-                    results[v['cod']] = new_state
                 
                 # The explicit save button
                 submit_btn = st.form_submit_button("💾 Salvează Modificările", type="primary")
@@ -489,11 +485,12 @@ with tab_record:
                 changes_made = False
                 for v in vaccines:
                     cod = v['cod']
-                    if cod not in results:
+                    key = f"chk_vax_{cod}"
+                    if key not in st.session_state:
                         continue
                         
                     was_vaccinated = cod in vaccinated_codes
-                    is_now_vaccinated = results[cod]
+                    is_now_vaccinated = st.session_state[key]
                     
                     if is_now_vaccinated and not was_vaccinated:
                         record_vaccination(
