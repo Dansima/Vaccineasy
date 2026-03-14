@@ -498,7 +498,8 @@ with tab_record:
                                 break
 
             if changes_made:
-                st.cache_data.clear()
+                st.success("Status salvat cu succes în baza de date.")
+                # Force a rerun to update the main patient header and DB caches instantly
                 st.rerun()
 
 
