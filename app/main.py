@@ -442,65 +442,78 @@ with tab_record:
             st.markdown("#### Calendarul de Vaccinare")
             st.caption("✅ = Vaccinat | ❌ = Nevaccinat · Bifează/debifează pentru a actualiza statusul.")
 
-            changes_made = False
-
             from app.business_logic import VACCINATION_SCHEDULE, get_exact_due_date
-            
-            for v in vaccines:
-                # Find target_months from schedule
-                target_months = next((tm for tm, (_, c) in VACCINATION_SCHEDULE.items() if c == v['cod']), 0)
-                if target_months == 0:
-                    continue  # Should not happen
+
+            with st.form(key=f"vaccine_form_{selected_patient['id']}"):
+                results = {}
+                for v in vaccines:
+                    # Find target_months from schedule
+                    target_months = next((tm for tm, (_, c) in VACCINATION_SCHEDULE.items() if c == v['cod']), 0)
+                    if target_months == 0:
+                        continue  # Should not happen
+                        
+                    due_date = get_exact_due_date(dn, target_months)
+                    is_due = datetime.now() >= due_date
+                    is_vaccinated = v['cod'] in vaccinated_codes
+
+                    # Determine label with age info
+                    if target_months < 12:
+                        age_label = f"{target_months} luni"
+                    elif target_months % 12 == 0:
+                        age_label = f"{target_months // 12} ani"
+                    else:
+                        age_label = f"{target_months // 12} ani și {target_months % 12} luni"
+
+                    # Add emojis right next to the vaccine
+                    status_emoji = "✅" if is_vaccinated else "❌"
+
+                    if is_due:
+                        label = f"{status_emoji} {v['nume']}  ·  Programat: {age_label}"
+                    else:
+                        days_until = (due_date - datetime.now()).days
+                        label = f"⏳ {v['nume']}  ·  Programat: {age_label} (peste {days_until} zile)"
+
+                    # Checkbox for each vaccine
+                    new_state = st.checkbox(
+                        label,
+                        value=is_vaccinated,
+                        key=f"chk_{v['cod']}",
+                        disabled=not is_due
+                    )
+                    results[v['cod']] = new_state
+                
+                # The explicit save button
+                submit_btn = st.form_submit_button("💾 Salvează Modificările", type="primary")
+
+            if submit_btn:
+                changes_made = False
+                for v in vaccines:
+                    cod = v['cod']
+                    if cod not in results:
+                        continue
+                        
+                    was_vaccinated = cod in vaccinated_codes
+                    is_now_vaccinated = results[cod]
                     
-                due_date = get_exact_due_date(dn, target_months)
-                is_due = datetime.now() >= due_date
-                is_vaccinated = v['cod'] in vaccinated_codes
-
-                # Determine label with age info
-                if target_months < 12:
-                    age_label = f"{target_months} luni"
-                elif target_months % 12 == 0:
-                    age_label = f"{target_months // 12} ani"
-                else:
-                    age_label = f"{target_months // 12} ani și {target_months % 12} luni"
-
-                if is_due:
-                    label = f"{v['nume']}  ·  Programat: {age_label}"
-                else:
-                    days_until = (due_date - datetime.now()).days
-                    label = f"⏳ {v['nume']}  ·  Programat: {age_label} (peste {days_until} zile)"
-
-                # Checkbox for each vaccine
-                new_state = st.checkbox(
-                    label,
-                    value=is_vaccinated,
-                    key=f"vax_{selected_patient['id']}_{v['cod']}",
-                    disabled=not is_due  # Can't vaccinate for future vaccines
-                )
-
-                # Handle state changes
-                if new_state != is_vaccinated:
-                    changes_made = True
-                    if new_state:
-                        # Record vaccination
+                    if is_now_vaccinated and not was_vaccinated:
                         record_vaccination(
                             patient_id=selected_patient["id"],
-                            vaccine_cod=v['cod'],
+                            vaccine_cod=cod,
                             date_administered=datetime.now().date(),
                             notes="Înregistrat manual"
                         )
-                    else:
-                        # Delete vaccination record
+                        changes_made = True
+                    elif not is_now_vaccinated and was_vaccinated:
                         history = get_vaccination_history(selected_patient["id"])
                         for h in history:
-                            if h['vaccine_cod'] == v['cod']:
+                            if h['vaccine_cod'] == cod:
                                 delete_vaccination_record(h['id'])
                                 break
-
-            if changes_made:
-                st.success("Status salvat cu succes în baza de date.")
-                # Force a rerun to update the main patient header and DB caches instantly
-                st.rerun()
+                        changes_made = True
+                        
+                if changes_made:
+                    st.success("Status salvat cu succes în baza de date.")
+                    st.rerun()
 
 
 # ---- TAB 3: VACCINATION HISTORY ----
