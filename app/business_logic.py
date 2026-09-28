@@ -3,6 +3,7 @@ Vaccineasy v4.0 — Business Logic Module
 CNP decoding, vaccination schedule engine, age formatting.
 """
 
+from calendar import monthrange
 from datetime import datetime
 from typing import Optional
 
@@ -96,15 +97,22 @@ def decode_cnp(cnp: str) -> Optional[datetime]:
         return None
 
 
-def format_varsta(data_nasterii: Optional[datetime]) -> str:
+def format_varsta(data_nasterii: Optional[datetime],
+                  reference_date: Optional[datetime] = None) -> str:
     """
     Format age as 'X ani, Y luni' from a date of birth.
+
+    Args:
+        data_nasterii:  Date of birth as a datetime object.
+        reference_date: The "as-of" date for age calculation.
+                        Defaults to datetime.now() when omitted.
+
     Returns 'CNP Invalid' if data_nasterii is None.
     """
     if not data_nasterii:
         return "CNP Invalid"
 
-    azi = datetime.now()
+    azi = reference_date if reference_date is not None else datetime.now()
     ani = azi.year - data_nasterii.year
     luni = azi.month - data_nasterii.month
 
@@ -145,28 +153,6 @@ OVERDUE_LIMIT = 500     # Days after target before we stop flagging as "Restant"
 MAX_AGE_YEARS = 15
 
 
-def get_single_vaccination_status(data_nasterii: Optional[datetime]):
-    """
-    LEGACY — Returns only the first matching vaccination status.
-    Kept for backward compatibility with the Anexa 1 export.
-    Returns: (status_text, vaccine_name, category_code)
-    """
-    statuses = get_all_vaccination_statuses(data_nasterii)
-    if not statuses:
-        return "🟢 La Zi", "-", None
-
-    # Priority: RESTANT > Scadent > Urmează
-    for status_text, vaccin, cod_cat in statuses:
-        if "RESTANT" in status_text:
-            return status_text, vaccin, cod_cat
-    for status_text, vaccin, cod_cat in statuses:
-        if "Scadent" in status_text:
-            return status_text, vaccin, cod_cat
-    return statuses[0]
-
-
-from calendar import monthrange
-
 def get_exact_due_date(dn: datetime, target_months: int) -> datetime:
     """
     Calculates the exact calendar due date by adding target_months to the birth date.
@@ -178,10 +164,18 @@ def get_exact_due_date(dn: datetime, target_months: int) -> datetime:
     day = min(dn.day, monthrange(year, month)[1])
     return datetime(year, month, day)
 
-def get_all_vaccination_statuses(data_nasterii: Optional[datetime]):
+
+def get_all_vaccination_statuses(data_nasterii: Optional[datetime],
+                                  reference_date: Optional[datetime] = None):
     """
     Returns ALL pending vaccination statuses for a child.
     This fixes the bug where only the first overdue vaccine was reported.
+
+    Args:
+        data_nasterii:  Date of birth as a datetime object.
+        reference_date: The "as-of" date for status calculation.
+                        Defaults to datetime.now() when omitted, so all
+                        existing callers continue to work without changes.
 
     Returns: list of (status_text, vaccine_name, category_code) tuples
              Empty list if child is up-to-date, adult, or CNP is invalid.
@@ -192,7 +186,7 @@ def get_all_vaccination_statuses(data_nasterii: Optional[datetime]):
     if not data_nasterii:
         return [("Eroare CNP", "-", None)]
 
-    azi = datetime.now()
+    azi = reference_date if reference_date is not None else datetime.now()
     varsta_ani = (azi - data_nasterii).days / 365.25
 
     if varsta_ani > MAX_AGE_YEARS:
@@ -214,3 +208,30 @@ def get_all_vaccination_statuses(data_nasterii: Optional[datetime]):
             results.append(("🔴 RESTANT", nume_vaccin, cod_cat))
 
     return results
+
+
+def get_single_vaccination_status(data_nasterii: Optional[datetime],
+                                   reference_date: Optional[datetime] = None):
+    """
+    LEGACY — Returns only the first matching vaccination status.
+    Kept for backward compatibility with the Anexa 1 export.
+
+    Args:
+        data_nasterii:  Date of birth as a datetime object.
+        reference_date: The "as-of" date for status calculation.
+                        Defaults to datetime.now() when omitted.
+
+    Returns: (status_text, vaccine_name, category_code)
+    """
+    statuses = get_all_vaccination_statuses(data_nasterii, reference_date=reference_date)
+    if not statuses:
+        return "🟢 La Zi", "-", None
+
+    # Priority: RESTANT > Scadent > Urmează
+    for status_text, vaccin, cod_cat in statuses:
+        if "RESTANT" in status_text:
+            return status_text, vaccin, cod_cat
+    for status_text, vaccin, cod_cat in statuses:
+        if "Scadent" in status_text:
+            return status_text, vaccin, cod_cat
+    return statuses[0]

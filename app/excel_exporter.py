@@ -5,19 +5,25 @@ Generates the official vaccination report with pagination (13 rows/page).
 
 import io
 from datetime import datetime
+from typing import Optional
 
 import pandas as pd
 
 
-def convert_df_to_catagrafie(df_input: pd.DataFrame) -> bytes:
+def convert_df_to_catagrafie(df_input: pd.DataFrame,
+                              reference_date: Optional[datetime] = None) -> bytes:
     """
     Generate the official Anexa 1 Excel report with automatic pagination.
     Each sheet contains up to 13 patient rows.
 
-    Expects df_input with columns:
-        'Nume si Prenume', 'CNP', 'Status', '_cod_cat'
+    Args:
+        df_input:       DataFrame with columns 'Nume si Prenume', 'CNP',
+                        'Status', '_cod_cat', 'Vârsta_datetime'.
+        reference_date: The "as-of" date used for the sheet title header
+                        ("în luna X / anul Y"). Defaults to today when omitted.
     """
     output = io.BytesIO()
+    ref = reference_date if reference_date is not None else datetime.now()
 
     # Filter: export out only "La Zi".
     # This means Scadent, Restant, AND Urmează (upcoming) are exported.
@@ -81,7 +87,7 @@ def convert_df_to_catagrafie(df_input: pd.DataFrame) -> bytes:
                                   'Catagrafia copiilor conform calendarului naţional de vaccinare',
                                   fmt_title)
             worksheet.merge_range('A5:Y5',
-                                  f'în luna {datetime.now().month} / anul {datetime.now().year} - Pagina {i + 1}',
+                                  f'în luna {ref.month} / anul {ref.year} - Pagina {i + 1}',
                                   fmt_title)
 
             # --- Column widths ---

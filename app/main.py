@@ -5,12 +5,12 @@ Persistent vaccination management with SQLite database.
 
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, date
 
 from app.business_logic import (
     decode_cnp, format_varsta,
     get_all_vaccination_statuses, get_single_vaccination_status,
-    VACCINATION_SCHEDULE
+    VACCINATION_SCHEDULE, get_exact_due_date
 )
 from app.database import (
     init_db, import_patients_from_excel,
@@ -189,15 +189,25 @@ st.markdown("""
 # --- INITIALIZE DATABASE ---
 init_db()
 
+# Romanian month names
+LUNI_RO = {
+    1: "Ianuarie", 2: "Februarie", 3: "Martie", 4: "Aprilie",
+    5: "Mai", 6: "Iunie", 7: "Iulie", 8: "August",
+    9: "Septembrie", 10: "Octombrie", 11: "Noiembrie", 12: "Decembrie"
+}
+
 
 # =============================================================
 # HELPER: Build the operative list from DB patients
 # =============================================================
-def build_operative_list():
+def build_operative_list(reference_date: datetime):
     """
     Build the operative patient list from the database.
     Returns a DataFrame with ONE ROW PER PATIENT.
     Vaccination statuses are consolidated: all pending vaccines listed together.
+
+    Args:
+        reference_date: The "as-of" datetime used for age and status calculations.
     """
     children = get_children_patients()
 
@@ -211,15 +221,15 @@ def build_operative_list():
         # Get vaccines already administered
         vaccinated_codes = get_vaccinated_codes_for_patient(patient["id"])
 
-        # Get all pending statuses
-        all_statuses = get_all_vaccination_statuses(dn)
+        # Get all pending statuses relative to the chosen reference date
+        all_statuses = get_all_vaccination_statuses(dn, reference_date=reference_date)
 
         if not all_statuses:
             rows.append({
                 "ID": patient["id"],
                 "Nume si Prenume": patient["nume"],
                 "CNP": patient["cnp"],
-                "Vârsta": format_varsta(dn),
+                "Vârsta": format_varsta(dn, reference_date=reference_date),
                 "Vârsta_datetime": dn,
                 "Vaccin Necesar": "-",
                 "Status": "🟢 La Zi",
@@ -239,7 +249,7 @@ def build_operative_list():
                 "ID": patient["id"],
                 "Nume si Prenume": patient["nume"],
                 "CNP": patient["cnp"],
-                "Vârsta": format_varsta(dn),
+                "Vârsta": format_varsta(dn, reference_date=reference_date),
                 "Vârsta_datetime": dn,
                 "Vaccin Necesar": "-",
                 "Status": "🟢 La Zi",
@@ -265,7 +275,7 @@ def build_operative_list():
             "ID": patient["id"],
             "Nume si Prenume": patient["nume"],
             "CNP": patient["cnp"],
-            "Vârsta": format_varsta(dn),
+            "Vârsta": format_varsta(dn, reference_date=reference_date),
             "Vârsta_datetime": dn,
             "Vaccin Necesar": ", ".join(vaccine_names),
             "Status": worst_status,
@@ -328,12 +338,38 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # Excel Import Section
-    st.markdown("##### 📁 Import Date")
+    # ── Reference Date Picker ────────────────────────────────
+    st.markdown("##### 📅 Dată de Referință")
+    selected_date = st.date_input(
+        "Calculează statusul la data:",
+        value=date.today(),
+        max_value=date.today(),
+        help=(
+            "Schimbă această dată pentru a genera Catagrafia pentru o lună anterioară. "
+            "De exemplu, selectează 1 Noiembrie pentru raportul lunii Noiembrie."
+        ),
+    )
+    # Expose as a datetime for downstream use
+    reference_date = datetime(selected_date.year, selected_date.month, selected_date.day)
+
+    # Warn visually when the user is viewing a past date
+    if selected_date < date.today():
+        st.warning(
+            f"⚠️ Mod istoric activ: **{selected_date.strftime('%d %b %Y')}**\n\n"
+            "Dashboard-ul și exportul reflectă statusul la acea dată."
+        )
+
+    st.markdown("---")
+
+    # ── Excel Import Section ─────────────────────────────────
+    st.markdown("##### 📁 Import Date din ICMED")
     uploaded_file = st.file_uploader(
-        "Încarcă Excel/CSV din ICMED",
+        "Încarcă fișierul Excel exportat din ICMED",
         type=['xlsx', 'xls', 'csv'],
-        help="Fișierul trebuie să conțină coloanele 'Nume' și 'CNP'"
+        help=(
+            "Fișierul trebuie să conțină coloanele **'Nume'**, **'Prenume'** și **'CNP'** "
+            "(exact cum sunt exportate din ICMED)."
+        )
     )
     if uploaded_file:
         if st.button("🔄 Importă în Baza de Date", type="primary", use_container_width=True):
@@ -369,7 +405,7 @@ tab_dashboard, tab_record, tab_history, tab_export = st.tabs([
 
 # ---- TAB 1: DASHBOARD ----
 with tab_dashboard:
-    df = build_operative_list()
+    df = build_operative_list(reference_date)
 
     if df.empty:
         st.markdown("### 👋 Nu există pacienți în baza de date.")
@@ -441,8 +477,6 @@ with tab_record:
             st.markdown("---")
             st.markdown("#### Calendarul de Vaccinare")
             st.caption("✅ = Vaccinat | ❌ = Nevaccinat · Bifează/debifează pentru a actualiza statusul.")
-
-            from app.business_logic import VACCINATION_SCHEDULE, get_exact_due_date
 
             with st.form(key=f"vaccine_form_{selected_patient['id']}"):
                 results = {}
@@ -531,12 +565,12 @@ with tab_history:
         )
         selected_patient_hist = patient_options_hist[selected_name_hist]
 
-        st.markdown(f"**Vârstă:** {format_varsta(selected_patient_hist['data_nasterii'])}")
+        st.markdown(f"**Vârstă:** {format_varsta(selected_patient_hist['data_nasterii'], reference_date=reference_date)}")
 
-        # Current vaccination status
+        # Current vaccination status (relative to the chosen reference date)
         st.markdown("#### Stare Curentă")
         dn = selected_patient_hist["data_nasterii"]
-        all_statuses = get_all_vaccination_statuses(dn)
+        all_statuses = get_all_vaccination_statuses(dn, reference_date=reference_date)
         vaccinated = get_vaccinated_codes_for_patient(selected_patient_hist["id"])
 
         if all_statuses:
@@ -571,30 +605,28 @@ with tab_history:
 with tab_export:
     st.subheader("📥 Export Catagrafie (Anexa 1)")
 
-    luna_curenta = datetime.now().month
-    an_curent = datetime.now().year
-    LUNI_RO = {1: "Ianuarie", 2: "Februarie", 3: "Martie", 4: "Aprilie",
-               5: "Mai", 6: "Iunie", 7: "Iulie", 8: "August",
-               9: "Septembrie", 10: "Octombrie", 11: "Noiembrie", 12: "Decembrie"}
-    st.markdown(f"Raport pentru copiii născuți în **{LUNI_RO[luna_curenta]} {an_curent}** · Paginare automată (13 rânduri/pagină).")
+    luna_ref = reference_date.month
+    an_ref = reference_date.year
+    st.markdown(
+        f"Raport pentru luna **{LUNI_RO[luna_ref]} {an_ref}** · Paginare automată (13 rânduri/pagină)."
+    )
 
-    df_export = build_operative_list()
+    df_export = build_operative_list(reference_date)
 
     if df_export.empty:
         st.warning("Nu există date pentru export.")
     else:
-        # Filter: Keep children who have at least one vaccine DUE THIS MONTH
+        # Filter: Keep children who have at least one vaccine DUE THIS REFERENCE MONTH
         # OR who are already RESTANT (overdue from previous months)
         
         def has_vaccine_due_this_month(row) -> bool:
             if "RESTANT" in row['Status']:
                 return True
                 
-            dn = row.get('Vârsta_datetime') # We need actual datetime to calculate, let's parse CNP again
+            dn = row.get('Vârsta_datetime')
             cnp_val = str(row['CNP'])
             
             try:
-                # Basic CNP to date conversion since we don't have raw datetime in row directly
                 an = int(cnp_val[1:3])
                 s = int(cnp_val[0])
                 if s in (5, 6): an += 2000
@@ -608,22 +640,19 @@ with tab_export:
             except Exception:
                 return False
 
-            from app.business_logic import VACCINATION_SCHEDULE, get_exact_due_date
-            from datetime import timedelta
-
             pending_codes = row.get('_all_codes', [])
             
             for target_months, (_, cod) in VACCINATION_SCHEDULE.items():
                 if cod in pending_codes:
                     due_date = get_exact_due_date(dn, target_months)
-                    if due_date.year == an_curent and due_date.month == luna_curenta:
+                    if due_date.year == an_ref and due_date.month == luna_ref:
                         return True
             return False
 
         df_export = df_export[df_export.apply(has_vaccine_due_this_month, axis=1)].copy()
 
         if df_export.empty:
-            st.warning(f"Nu există copii cu vaccinări programate sau restante în luna {LUNI_RO[luna_curenta]}.")
+            st.warning(f"Nu există copii cu vaccinări programate sau restante în luna {LUNI_RO[luna_ref]}.")
         else:
             df_preview = df_export[~df_export['Status'].isin(["🟢 La Zi"])]
             st.markdown(f"**Pacienți de exportat:** {len(df_preview)} (Urmează + Scadenți + Restanțieri)")
@@ -631,11 +660,12 @@ with tab_export:
 
             col_btn, col_info = st.columns([1, 2])
             with col_btn:
-                excel_data = convert_df_to_catagrafie(df_export)
+                # Pass reference_date so the Excel header shows the correct month/year
+                excel_data = convert_df_to_catagrafie(df_export, reference_date=reference_date)
                 st.download_button(
                     "📥 Descarcă Anexa 1 (Paginată)",
                     data=excel_data,
-                    file_name=f'Catagrafie_Paginata_{LUNI_RO[luna_curenta]}_{an_curent}.xlsx',
+                    file_name=f'Catagrafie_Paginata_{LUNI_RO[luna_ref]}_{an_ref}.xlsx',
                     mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                     type="primary"
                 )
