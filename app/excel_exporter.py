@@ -4,10 +4,33 @@ Generates the official vaccination report with pagination (13 rows/page).
 """
 
 import io
+from collections import Counter
 from datetime import datetime
 from typing import Optional
 
 import pandas as pd
+from xlsxwriter.utility import xl_col_to_name
+from app.reporting import filter_monthly_report
+
+COL_MAP = {'Hexa_2': 3, 'Hexa_4': 5, 'Hexa_11': 7,
+           'ROR_12': 15, 'ROR_Tetra_5': 17, 'Tetra_6': 19, 'dTPa_14': 21}
+
+
+def _marked_columns(row):
+    pending = row.get('_pending')
+    if not isinstance(pending, list):
+        codes = row.get('_all_codes')
+        if not isinstance(codes, list):
+            codes = [row['_cod_cat']] if row.get('_cod_cat') else []
+        pending = [(row['Status'], '', code) for code in codes]
+    marked = set()
+    for status, _, code in pending:
+        if code in COL_MAP:
+            col = COL_MAP[code] + int('RESTANT' in status)
+            marked.add(col)
+            if code.startswith('Hexa_'):
+                marked.add(col + 6)
+    return marked
 
 
 def convert_df_to_catagrafie(df_input: pd.DataFrame,
@@ -27,7 +50,10 @@ def convert_df_to_catagrafie(df_input: pd.DataFrame,
 
     # Filter: export out only "La Zi".
     # This means Scadent, Restant, AND Urmează (upcoming) are exported.
-    df_export = df_input[~df_input['Status'].isin(["🟢 La Zi"])].copy()
+    if '_pending' in df_input.columns:
+        df_export = filter_monthly_report(df_input, ref)
+    else:
+        df_export = df_input[~df_input['Status'].isin(["🟢 La Zi"])].copy()
 
     # Sort descending by Vârsta_datetime (youngest first = largest datetime)
     if 'Vârsta_datetime' in df_export.columns:
@@ -40,7 +66,10 @@ def convert_df_to_catagrafie(df_input: pd.DataFrame,
     if not chunks:
         chunks = [pd.DataFrame(columns=df_input.columns)]
 
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+    total_counts = Counter(c for _, row in df_export.iterrows() for c in _marked_columns(row))
+
+    with pd.ExcelWriter(output, engine='xlsxwriter', engine_kwargs={'options': {
+            'strings_to_formulas': False, 'strings_to_urls': False}}) as writer:
         workbook = writer.book
 
         # --- Define Styles (once) ---
@@ -66,7 +95,7 @@ def convert_df_to_catagrafie(df_input: pd.DataFrame,
             'align': 'center', 'valign': 'vcenter', 'border': 1, 'font_size': 10
         })
         fmt_left = workbook.add_format({
-            'align': 'left', 'valign': 'vcenter', 'border': 1, 'font_size': 10
+            'align': 'left', 'valign': 'vcenter', 'border': 1, 'font_size': 10, 'text_wrap': True
         })
         fmt_bold_border = workbook.add_format({
             'bold': True, 'border': 1, 'font_size': 10
@@ -79,6 +108,11 @@ def convert_df_to_catagrafie(df_input: pd.DataFrame,
         for i, chunk in enumerate(chunks):
             sheet_name = f'Pagina {i + 1}'
             worksheet = workbook.add_worksheet(sheet_name)
+            worksheet.set_landscape()
+            worksheet.set_paper(9)  # A4
+            worksheet.fit_to_pages(1, 1)
+            worksheet.set_margins(0.25, 0.25, 0.3, 0.3)
+            worksheet.center_horizontally()
 
             # --- Document Header ---
             worksheet.write('A1', 'Unitatea sanitară ...................................', fmt_top_left)
@@ -146,44 +180,21 @@ def convert_df_to_catagrafie(df_input: pd.DataFrame,
             worksheet.write(r_start + 2, 24, 'restantieri', fmt_vertical)
 
             # --- Populate Data ---
-            col_map = {
-                'Hexa_2': 3, 'Hexa_4': 5, 'Hexa_11': 7,
-                'ROR_12': 15, 'ROR_Tetra_5': 17, 'Tetra_6': 19, 'dTPa_14': 21
-            }
-
             current_row = r_start + 3
             nr_crt = (i * LIMITA_PAGINA) + 1
+            page_counts = Counter()
 
             for _, row in chunk.iterrows():
+                worksheet.set_row(current_row, 30)
                 worksheet.write(current_row, 0, nr_crt, fmt_center)
-                worksheet.write(current_row, 1, row['Nume si Prenume'], fmt_left)
-                worksheet.write(current_row, 2, row['CNP'], fmt_center)
+                worksheet.write_string(current_row, 1, str(row['Nume si Prenume']), fmt_left)
+                worksheet.write_string(current_row, 2, str(row['CNP']), fmt_center)
 
                 # Track which cells have been written to
-                written_cols = {0, 1, 2}
-
-                is_restant = "RESTANT" in row['Status']
-                offset = 1 if is_restant else 0
-
-                # Get all vaccine codes for this patient
-                all_codes = row.get('_all_codes', [])
-                if not isinstance(all_codes, list):
-                    # Fallback for single _cod_cat
-                    all_codes = [row['_cod_cat']] if row.get('_cod_cat') else []
-
-                for cat in all_codes:
-                    if cat in col_map:
-                        cols = col_map[cat]
-                        if not isinstance(cols, list):
-                            cols = [cols]
-
-                        for c in cols:
-                            worksheet.write(current_row, c + offset, 'X', fmt_center)
-                            written_cols.add(c + offset)
-                            # Pneumococcal auto-fill for Hexavalent
-                            if 3 <= c <= 8:
-                                worksheet.write(current_row, c + 6 + offset, 'X', fmt_center)
-                                written_cols.add(c + 6 + offset)
+                written_cols = _marked_columns(row)
+                page_counts.update(written_cols)
+                for col in written_cols:
+                    worksheet.write(current_row, col, 'X', fmt_center)
 
                 # Apply borders to empty cells
                 for c in range(3, 25):
@@ -193,19 +204,39 @@ def convert_df_to_catagrafie(df_input: pd.DataFrame,
                 current_row += 1
                 nr_crt += 1
 
+            # Reserve all 13 patient rows, including on the final page.
+            while current_row < 22:
+                worksheet.set_row(current_row, 30)
+                for c in range(25):
+                    worksheet.write_blank(current_row, c, None, fmt_empty_cell)
+                current_row += 1
+
             # --- Footer ---
+            worksheet.write_blank(current_row, 0, None, fmt_center)
             worksheet.write(current_row, 1, 'TOTAL', fmt_bold_border)
-            for c in range(2, 25):
-                worksheet.write(current_row, c, '', fmt_center)
+            worksheet.write(current_row, 2, len(chunk), fmt_center)
+            for c in range(3, 25):
+                col = xl_col_to_name(c)
+                worksheet.write_formula(current_row, c, f'=COUNTIF({col}10:{col}22,"X")',
+                                        fmt_center, page_counts[c])
             current_row += 1
+            worksheet.write_blank(current_row, 0, None, fmt_center)
             worksheet.write(current_row, 1, 'TOTAL GENERAL', fmt_bold_border)
-            for c in range(2, 25):
-                worksheet.write(current_row, c, '', fmt_center)
+            worksheet.write_formula(current_row, 2,
+                '=' + '+'.join(f"'Pagina {page + 1}'!C23" for page in range(len(chunks))),
+                fmt_center, len(df_export))
+            for c in range(3, 25):
+                col = xl_col_to_name(c)
+                worksheet.write_formula(current_row, c,
+                    '=' + '+'.join(f"'Pagina {page + 1}'!{col}23" for page in range(len(chunks))),
+                    fmt_center, total_counts[c])
             current_row += 2
-            worksheet.write(current_row, 0,
+            worksheet.merge_range(current_row, 0, current_row, 24,
                             'NOTĂ: Catagrafia se păstrează la nivelul cabinetului medical/unităţii sanitare '
                             'pentru a fi prezentată în vederea unor eventuale verificări.',
-                            fmt_top_left)
+                            workbook.add_format({'font_size': 8, 'text_wrap': True, 'valign': 'top'}))
+            worksheet.set_row(current_row, 28)
+            worksheet.print_area(0, 0, current_row, 24)
             worksheet.freeze_panes(r_start + 3, 3)
 
     return output.getvalue()

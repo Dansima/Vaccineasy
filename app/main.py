@@ -1,673 +1,230 @@
-"""
-Vaccineasy v4.0 — Main Streamlit Application
-Persistent vaccination management with SQLite database.
-"""
+"""Vaccineasy clinical workspace. All translations are presentation-only."""
+from datetime import date
+from pathlib import Path
 
-import streamlit as st
 import pandas as pd
-from datetime import datetime, date
+import streamlit as st
 
-from app.business_logic import (
-    decode_cnp, format_varsta,
-    get_all_vaccination_statuses, get_single_vaccination_status,
-    VACCINATION_SCHEDULE, get_exact_due_date
-)
+from app.business_logic import VACCINATION_SCHEDULE, as_datetime, get_all_vaccination_statuses, get_exact_due_date
 from app.database import (
-    init_db, import_patients_from_excel,
-    get_all_patients, get_children_patients,
-    record_vaccination, get_vaccination_history,
-    get_vaccinated_codes_for_patient, get_all_vaccines,
-    get_db_stats, delete_vaccination_record
+    init_db, import_patients_from_excel, get_children_patients, get_db_stats,
+    get_vaccinated_codes_for_patient, get_vaccination_history, save_vaccination_selection,
 )
 from app.excel_exporter import convert_df_to_catagrafie
-
-# --- PAGE CONFIG ---
-st.set_page_config(
-    page_title="Vaccineasy V4.0",
-    page_icon="💉",
-    layout="wide"
+from app.reporting import build_operative_list, filter_monthly_report
+from app.presentation import (
+    STATUS_LABELS, VACCINE_LABELS, MONTHS, display_date, display_note, display_error,
+    display_patient_frame, patient_context_html,
 )
 
-# --- MODERN THEME CSS ---
-st.markdown("""
-<style>
-    /* ===== Google Font ===== */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-
-    /* ===== Global ===== */
-    html, body, [class*="css"] {
-        font-family: 'Inter', sans-serif !important;
-    }
-
-    /* ===== Main container ===== */
-    .main .block-container {
-        padding-top: 2rem;
-        padding-bottom: 2rem;
-    }
-
-    /* ===== Headers ===== */
-    h1 {
-        font-weight: 800 !important;
-        letter-spacing: -0.5px !important;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-    }
-    h2, h3 {
-        font-weight: 700 !important;
-        letter-spacing: -0.3px !important;
-    }
-
-    /* ===== Metric cards ===== */
-    [data-testid="stMetric"] {
-        background: linear-gradient(135deg, #1e1e2e 0%, #2d2d44 100%);
-        border: 1px solid rgba(255,255,255,0.08);
-        border-radius: 16px;
-        padding: 20px 24px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
-    }
-    [data-testid="stMetric"]:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 30px rgba(0,0,0,0.25);
-    }
-    [data-testid="stMetricLabel"] {
-        font-size: 0.85rem !important;
-        font-weight: 500 !important;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        opacity: 0.7;
-    }
-    [data-testid="stMetricValue"] {
-        font-size: 2rem !important;
-        font-weight: 800 !important;
-    }
-
-    /* ===== Sidebar ===== */
-    section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%) !important;
-        border-right: 1px solid rgba(255,255,255,0.05);
-    }
-    section[data-testid="stSidebar"] h1,
-    section[data-testid="stSidebar"] h2,
-    section[data-testid="stSidebar"] h3 {
-        background: none !important;
-        -webkit-text-fill-color: white !important;
-    }
-
-    /* ===== Tabs ===== */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-        background: rgba(255,255,255,0.03);
-        border-radius: 12px;
-        padding: 4px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        border-radius: 10px;
-        padding: 10px 20px;
-        font-weight: 600;
-        font-size: 0.9rem;
-        letter-spacing: 0.2px;
-    }
-    .stTabs [aria-selected="true"] {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-        color: white !important;
-        border-bottom: none !important;
-    }
-
-    /* ===== Buttons ===== */
-    .stButton > button[kind="primary"],
-    .stDownloadButton > button[kind="primary"] {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-        border: none !important;
-        border-radius: 12px !important;
-        font-weight: 600 !important;
-        font-family: 'Inter', sans-serif !important;
-        letter-spacing: 0.3px;
-        padding: 0.6rem 1.5rem !important;
-        transition: all 0.3s ease !important;
-        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3) !important;
-    }
-    .stButton > button[kind="primary"]:hover,
-    .stDownloadButton > button[kind="primary"]:hover {
-        transform: translateY(-1px) !important;
-        box-shadow: 0 6px 25px rgba(102, 126, 234, 0.5) !important;
-    }
-
-    /* ===== Dataframe ===== */
-    [data-testid="stDataFrame"] {
-        border-radius: 12px;
-        overflow: hidden;
-        border: 1px solid rgba(255,255,255,0.08);
-    }
-
-    /* ===== Inputs ===== */
-    .stSelectbox, .stMultiSelect, .stTextInput, .stTextArea, .stDateInput {
-        font-family: 'Inter', sans-serif !important;
-    }
-    .stSelectbox > div > div,
-    .stMultiSelect > div > div,
-    .stTextInput > div > div > input,
-    .stTextArea > div > textarea {
-        border-radius: 10px !important;
-        border: 1px solid rgba(255,255,255,0.1) !important;
-        font-family: 'Inter', sans-serif !important;
-    }
-
-    /* ===== Info/Success/Warning/Error boxes ===== */
-    .stAlert {
-        border-radius: 12px !important;
-        border-left-width: 4px !important;
-        font-family: 'Inter', sans-serif !important;
-    }
-
-    /* ===== File Uploader ===== */
-    [data-testid="stFileUploader"] {
-        border-radius: 12px;
-    }
-
-    /* ===== Dividers ===== */
-    hr {
-        border: none;
-        height: 1px;
-        background: linear-gradient(90deg, transparent, rgba(102, 126, 234, 0.3), transparent);
-        margin: 1.5rem 0;
-    }
-
-    /* ===== Subtle animation on page load ===== */
-    @keyframes fadeInUp {
-        from { opacity: 0; transform: translateY(10px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    .main .block-container {
-        animation: fadeInUp 0.4s ease-out;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# --- INITIALIZE DATABASE ---
-init_db()
-
-# Romanian month names
-LUNI_RO = {
-    1: "Ianuarie", 2: "Februarie", 3: "Martie", 4: "Aprilie",
-    5: "Mai", 6: "Iunie", 7: "Iulie", 8: "August",
-    9: "Septembrie", 10: "Octombrie", 11: "Noiembrie", 12: "Decembrie"
-}
+st.set_page_config(page_title='Vaccineasy · Practice workspace', page_icon='💉',
+                   layout='wide', initial_sidebar_state='expanded')
+style_path = Path(__file__).with_name('styles.css')
+if style_path.exists():
+    st.markdown(f'<style>{style_path.read_text(encoding="utf-8")}</style>', unsafe_allow_html=True)
 
 
-# =============================================================
-# HELPER: Build the operative list from DB patients
-# =============================================================
-def build_operative_list(reference_date: datetime):
-    """
-    Build the operative patient list from the database.
-    Returns a DataFrame with ONE ROW PER PATIENT.
-    Vaccination statuses are consolidated: all pending vaccines listed together.
-
-    Args:
-        reference_date: The "as-of" datetime used for age and status calculations.
-    """
-    children = get_children_patients()
-
-    if not children:
-        return pd.DataFrame()
-
-    rows = []
-    for patient in children:
-        dn = patient["data_nasterii"]
-
-        # Get vaccines already administered
-        vaccinated_codes = get_vaccinated_codes_for_patient(patient["id"])
-
-        # Get all pending statuses relative to the chosen reference date
-        all_statuses = get_all_vaccination_statuses(dn, reference_date=reference_date)
-
-        if not all_statuses:
-            rows.append({
-                "ID": patient["id"],
-                "Nume si Prenume": patient["nume"],
-                "CNP": patient["cnp"],
-                "Vârsta": format_varsta(dn, reference_date=reference_date),
-                "Vârsta_datetime": dn,
-                "Vaccin Necesar": "-",
-                "Status": "🟢 La Zi",
-                "_cod_cat": None,
-                "_all_codes": [],
-            })
-            continue
-
-        if any("Adult" in s[0] or "Eroare" in s[0] for s in all_statuses):
-            continue
-
-        # Filter out vaccines already administered
-        pending = [(s, v, c) for s, v, c in all_statuses if c not in vaccinated_codes]
-
-        if not pending:
-            rows.append({
-                "ID": patient["id"],
-                "Nume si Prenume": patient["nume"],
-                "CNP": patient["cnp"],
-                "Vârsta": format_varsta(dn, reference_date=reference_date),
-                "Vârsta_datetime": dn,
-                "Vaccin Necesar": "-",
-                "Status": "🟢 La Zi",
-                "_cod_cat": None,
-                "_all_codes": [],
-            })
-            continue
-
-        # Consolidate: ONE row per patient with all pending vaccines
-        vaccine_names = [v for _, v, _ in pending]
-        vaccine_codes = [c for _, _, c in pending]
-
-        # Determine worst status (priority: RESTANT > Scadent > Urmează)
-        statuses = [s for s, _, _ in pending]
-        if any("RESTANT" in s for s in statuses):
-            worst_status = "🔴 RESTANT"
-        elif any("Scadent" in s for s in statuses):
-            worst_status = "🟡 Scadent"
-        else:
-            worst_status = "🟢 Urmează"
-
-        rows.append({
-            "ID": patient["id"],
-            "Nume si Prenume": patient["nume"],
-            "CNP": patient["cnp"],
-            "Vârsta": format_varsta(dn, reference_date=reference_date),
-            "Vârsta_datetime": dn,
-            "Vaccin Necesar": ", ".join(vaccine_names),
-            "Status": worst_status,
-            "_cod_cat": vaccine_codes[0] if vaccine_codes else None,
-            "_all_codes": vaccine_codes,
-        })
-
-    return pd.DataFrame(rows)
-
-
-# =============================================================
-# STYLING
-# =============================================================
 def highlight_rows(row):
-    """Color-code rows by vaccination status."""
-    status = row['Status']
-    if "RESTANT" in status:
-        bg = 'rgba(255, 75, 75, 0.25)'
-        color = '#ff6b6b'
-    elif "Scadent" in status:
-        bg = 'rgba(255, 164, 33, 0.25)'
-        color = '#ffc078'
-    elif "Urmează" in status:
-        bg = 'rgba(33, 195, 84, 0.25)'
-        color = '#69db7c'
-    else:
-        bg = 'transparent'
-        color = 'inherit'
-    return [
-        f'background-color: {bg}; color: {color}; font-weight: 700; border-radius: 6px;'
-        if col == 'Status' else ''
-        for col in row.index
-    ]
+    colors = {'Overdue': ('#fff0ef', '#862b26'), 'Due': ('#fff5dc', '#785200'),
+              'Upcoming': ('#eaf4ff', '#205584'), 'Up to date': ('#e8f5ed', '#246342')}
+    bg, fg = colors.get(row['Status'], ('#ffffff', '#18334b'))
+    return [f'background-color:{bg};color:{fg}' for _ in row]
 
 
-# =============================================================
-# SIDEBAR
-# =============================================================
+try:
+    init_db()
+except Exception:
+    st.error('The local database could not be opened. Check access to the data folder and restart the app.')
+    st.stop()
+
 with st.sidebar:
-    st.markdown("""
-    <div style="text-align: center; padding: 1rem 0;">
-        <div style="font-size: 3rem; margin-bottom: 0.3rem;">💉</div>
-        <div style="font-size: 1.5rem; font-weight: 800; letter-spacing: -0.5px;
-                    background: linear-gradient(135deg, #667eea, #764ba2);
-                    -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
-            Vaccineasy
-        </div>
-        <div style="font-size: 0.75rem; opacity: 0.5; margin-top: 2px; letter-spacing: 2px; text-transform: uppercase;">
-            v4.0 · Bază de date locală
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("---")
-
-    # Database stats
-    stats = get_db_stats()
-    st.metric("Pacienți în DB", stats["total_patients"])
-    st.metric("Vaccinări Înregistrate", stats["total_vaccination_records"])
-
-    st.markdown("---")
-
-    # ── Reference Date Picker ────────────────────────────────
-    st.markdown("##### 📅 Dată de Referință")
-    selected_date = st.date_input(
-        "Calculează statusul la data:",
-        value=date.today(),
-        max_value=date.today(),
-        help=(
-            "Schimbă această dată pentru a genera Catagrafia pentru o lună anterioară. "
-            "De exemplu, selectează 1 Noiembrie pentru raportul lunii Noiembrie."
-        ),
-    )
-    # Expose as a datetime for downstream use
-    reference_date = datetime(selected_date.year, selected_date.month, selected_date.day)
-
-    # Warn visually when the user is viewing a past date
+    st.markdown('<div class="brand"><span class="brand-mark">+</span> Vaccineasy</div>', unsafe_allow_html=True)
+    st.caption('FAMILY PRACTICE · VACCINATION REGISTER')
+    stats_area = st.container()
+    st.divider()
+    st.subheader('Reference date')
+    selected_date = st.date_input('View records as of', value=date.today(),
+        min_value=date(1900, 1, 1), max_value=date.today(), format='DD.MM.YYYY',
+        help='Controls ages, status, patient history and the monthly report. Recording always uses today.')
+    reference_date = as_datetime(selected_date)
     if selected_date < date.today():
-        st.warning(
-            f"⚠️ Mod istoric activ: **{selected_date.strftime('%d %b %Y')}**\n\n"
-            "Dashboard-ul și exportul reflectă statusul la acea dată."
-        )
-
-    st.markdown("---")
-
-    # ── Excel Import Section ─────────────────────────────────
-    st.markdown("##### 📁 Import Date din ICMED")
-    uploaded_file = st.file_uploader(
-        "Încarcă fișierul Excel exportat din ICMED",
-        type=['xlsx', 'xls', 'csv'],
-        help=(
-            "Fișierul trebuie să conțină coloanele **'Nume'**, **'Prenume'** și **'CNP'** "
-            "(exact cum sunt exportate din ICMED)."
-        )
-    )
-    if uploaded_file:
-        if st.button("🔄 Importă în Baza de Date", type="primary", use_container_width=True):
-            with st.spinner("Se importă datele..."):
-                result = import_patients_from_excel(uploaded_file)
-                st.cache_data.clear()
-
-            if result["errors"]:
-                for err in result["errors"]:
-                    st.error(err)
-            else:
-                st.success(
-                    f"✅ Import finalizat!\n\n"
-                    f"- **Noi:** {result['imported']}\n"
-                    f"- **Actualizați:** {result['updated']}\n"
-                    f"- **Omise:** {result['skipped']}"
-                )
-
-    st.markdown("---")
-    st.info("ℹ️ Datele sunt salvate local și persistă după repornirea containerului Docker.")
-
-
-# =============================================================
-# MAIN CONTENT — TABS
-# =============================================================
-st.title("💉 Vaccineasy")
-st.caption("Sistem Management Vaccinări Pediatrice · Calendarul Național de Vaccinare")
-
-tab_dashboard, tab_record, tab_history, tab_export = st.tabs([
-    "📊 Dashboard", "💊 Înregistrare Vaccinare", "📋 Istoric Pacient", "📥 Export Anexa 1"
-])
-
-
-# ---- TAB 1: DASHBOARD ----
-with tab_dashboard:
-    df = build_operative_list(reference_date)
-
-    if df.empty:
-        st.markdown("### 👋 Nu există pacienți în baza de date.")
-        st.markdown("Încarcă un fișier Excel/CSV din bara laterală pentru a începe.")
-    else:
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Copii Înregistrați", df["ID"].nunique())
-
-        restant_count = len(df[df["Status"].str.contains("RESTANT", na=False)])
-        scadent_count = len(df[df["Status"].str.contains("Scadent", na=False)])
-        la_zi_count = len(df[df["Status"].str.contains("La Zi", na=False)])
-
-        c2.metric("🔴 Restanțieri", restant_count)
-        c3.metric("🟡 De Vaccinat", scadent_count)
-        c4.metric("🟢 La Zi", la_zi_count)
-
-        st.markdown("---")
-
-        st.subheader("Lista Operativă")
-        optiuni_filtru = ["🔴 RESTANT", "🟡 Scadent", "🟢 Urmează", "🟢 La Zi"]
-        filtru = st.multiselect(
-            "Filtrează după status:",
-            optiuni_filtru,
-            default=["🔴 RESTANT", "🟡 Scadent"]
-        )
-
-        mask = df['Status'].apply(lambda x: any(f in x for f in filtru))
-        df_afisat = df[mask]
-
-        if not df_afisat.empty:
-            cols_show = ["Nume si Prenume", "CNP", "Vârsta", "Vaccin Necesar", "Status"]
-            st.dataframe(
-                df_afisat[cols_show].style.apply(highlight_rows, axis=1),
-                use_container_width=True,
-                height=600,
-                hide_index=True
-            )
+        st.warning(f'Historical view · {display_date(selected_date)}')
+    st.divider()
+    st.subheader('Import patients')
+    upload = st.file_uploader('ICMED patient file', type=['xlsx', 'xls', 'csv'],
+        help='Keep the ICMED column names: Nume (surname), Prenume (given name), CNP. Telefon is optional.')
+    st.caption('Required columns: Nume, Prenume, CNP. Existing patients are matched by CNP.')
+    st.caption('On first import, doses due before this month are assumed completed. '
+               'They are labelled unconfirmed in patient history.')
+    if st.button('Import patients', type='primary', disabled=upload is None, use_container_width=True):
+        with st.spinner('Importing the patient file…'):
+            result = import_patients_from_excel(upload)
+        summary = f"Added {result['imported']} · Updated {result['updated']} · Skipped {result['skipped']}"
+        if result['errors']:
+            st.warning(summary)
         else:
-            st.info("Niciun pacient nu corespunde filtrelor selectate.")
+            st.success(f'Import complete. {summary}')
+        for error in result['errors']:
+            st.warning(display_error(error))
+    with stats_area:
+        stats = get_db_stats()
+        st.metric('Registered patients', stats['total_patients'])
+        st.metric('Vaccination records', stats['total_vaccination_records'])
+        st.caption('Record count includes assumed doses.')
+    st.divider()
+    st.caption('LOCAL STORAGE\n\nPatient records are stored on the computer running this app. '
+               'Docker installations need the configured persistent data volume.')
 
+heading, context = st.columns([3, 2])
+with heading:
+    st.markdown('<div class="eyebrow">Practice workspace</div>', unsafe_allow_html=True)
+    st.title('Vaccination care')
+    st.caption('Review what is due. Record care. Prepare the monthly register.')
+with context:
+    st.markdown(f'<div class="date-context"><span>Viewing status as of</span>'
+                f'<strong>{display_date(selected_date)}</strong></div>', unsafe_allow_html=True)
+if 'saved_message' in st.session_state:
+    st.success(st.session_state.pop('saved_message'))
 
-# ---- TAB 2: VACCINATION MANAGEMENT ----
-with tab_record:
-    st.subheader("💊 Gestiune Vaccinări")
-    st.markdown("Selectează pacientul și bifează/debifează vaccinurile administrate.")
+dashboard, record_tab, history_tab, export_tab = st.tabs([
+    'Overview', 'Record vaccination', 'Patient history', 'Monthly report'])
+frame = build_operative_list(reference_date)
 
+with dashboard:
+    st.subheader('Your patient list')
+    st.caption('Children within the existing pediatric age limit on the reference date. '
+               'The most urgent pending dose determines each patient’s status.')
+    cards = st.columns(4)
+    cards[0].metric('Children', len(frame))
+    cards[1].metric('Overdue', int(frame['Status'].eq('🔴 RESTANT').sum()))
+    cards[2].metric('Due', int(frame['Status'].eq('🟡 Scadent').sum()))
+    cards[3].metric('Up to date', int(frame['Status'].eq('🟢 La Zi').sum()))
+    st.caption(f"Children upcoming within 31 days: {int(frame['Status'].eq('🟢 Urmează').sum())}. "
+               'Due: 0–30 days after the scheduled date. Overdue: more than 30 days after.')
+    filters = st.multiselect('Show patients with status',
+        ['🔴 RESTANT', '🟡 Scadent', '🟢 Urmează', '🟢 La Zi'],
+        default=['🔴 RESTANT', '🟡 Scadent'], format_func=STATUS_LABELS.get)
+    visible = frame[frame['Status'].isin(filters)]
+    if frame.empty:
+        st.info('No eligible children on this date. Import an ICMED patient file in the sidebar, '
+                'or review the reference date if you have already imported patients.')
+    elif visible.empty:
+        st.info('No patients match these status filters. Choose Upcoming or Up to date to see other patients.')
+    else:
+        st.caption(f'{len(visible)} of {len(frame)} children shown · All pending doses are listed for each child.')
+        st.dataframe(display_patient_frame(visible).style.apply(highlight_rows, axis=1),
+                     use_container_width=True, hide_index=True,
+                     column_config={'CNP': st.column_config.TextColumn('CNP', help='Romanian personal identification number')})
+
+with record_tab:
+    st.subheader('Record vaccination')
+    st.caption(f'Newly checked doses are recorded today: {display_date(date.today())}. '
+               'The reference date does not change the administration date.')
     children = get_children_patients()
-
     if not children:
-        st.warning("Nu există pacienți copii în baza de date.")
+        st.info('No eligible children today. Import a patient file to start recording vaccinations.')
     else:
-        # Patient selector
-        patient_options = {f"{p['nume']}  ·  CNP: {p['cnp']}": p for p in children}
-        selected_name = st.selectbox("Pacient:", list(patient_options.keys()))
-        selected_patient = patient_options[selected_name]
-
-        dn = selected_patient['data_nasterii']
-        st.markdown(f"**Vârstă:** {format_varsta(dn)}")
-
-        if not dn:
-            st.error("CNP invalid — nu se poate determina vârsta.")
-        else:
-            varsta_zile = (datetime.now() - dn).days
-
-            # Get current vaccination records
-            vaccinated_codes = get_vaccinated_codes_for_patient(selected_patient["id"])
-            vaccines = get_all_vaccines()
-
-            st.markdown("---")
-            st.markdown("#### Calendarul de Vaccinare")
-            st.caption("✅ = Vaccinat | ❌ = Nevaccinat · Bifează/debifează pentru a actualiza statusul.")
-
-            with st.form(key=f"vaccine_form_{selected_patient['id']}"):
-                results = {}
-                for v in vaccines:
-                    # Find target_months from schedule
-                    target_months = next((tm for tm, (_, c) in VACCINATION_SCHEDULE.items() if c == v['cod']), 0)
-                    if target_months == 0:
-                        continue  # Should not happen
-                        
-                    due_date = get_exact_due_date(dn, target_months)
-                    is_due = datetime.now() >= due_date
-                    is_vaccinated = v['cod'] in vaccinated_codes
-
-                    # Determine label with age info
-                    if target_months < 12:
-                        age_label = f"{target_months} luni"
-                    elif target_months % 12 == 0:
-                        age_label = f"{target_months // 12} ani"
-                    else:
-                        age_label = f"{target_months // 12} ani și {target_months % 12} luni"
-
-                    if is_due:
-                        label = f"{v['nume']}  ·  Programat: {age_label}"
-                    else:
-                        days_until = (due_date - datetime.now()).days
-                        label = f"⏳ {v['nume']}  ·  Programat: {age_label} (peste {days_until} zile)"
-
-                    # Checkbox for each vaccine
-                    st.checkbox(
-                        label,
-                        value=is_vaccinated,
-                        key=f"chk_vax_{v['cod']}",
-                        disabled=not is_due
-                    )
-                
-                # The explicit save button
-                submit_btn = st.form_submit_button("💾 Salvează Modificările", type="primary")
-
-            if submit_btn:
-                changes_made = False
-                for v in vaccines:
-                    cod = v['cod']
-                    key = f"chk_vax_{cod}"
-                    if key not in st.session_state:
-                        continue
-                        
-                    was_vaccinated = cod in vaccinated_codes
-                    is_now_vaccinated = st.session_state[key]
-                    
-                    if is_now_vaccinated and not was_vaccinated:
-                        record_vaccination(
-                            patient_id=selected_patient["id"],
-                            vaccine_cod=cod,
-                            date_administered=datetime.now().date(),
-                            notes="Înregistrat manual"
-                        )
-                        changes_made = True
-                    elif not is_now_vaccinated and was_vaccinated:
-                        history = get_vaccination_history(selected_patient["id"])
-                        for h in history:
-                            if h['vaccine_cod'] == cod:
-                                delete_vaccination_record(h['id'])
-                                break
-                        changes_made = True
-                        
-                if changes_made:
-                    st.success("Status salvat cu succes în baza de date.")
-                    st.rerun()
-
-
-# ---- TAB 3: VACCINATION HISTORY ----
-with tab_history:
-    st.subheader("📋 Istoric Vaccinări")
-
-    children = get_children_patients()
-
-    if not children:
-        st.warning("Nu există pacienți copii în baza de date.")
-    else:
-        # Patient selector — FULL CNP shown
-        patient_options_hist = {f"{p['nume']}  ·  CNP: {p['cnp']}": p for p in children}
-        selected_name_hist = st.selectbox(
-            "Selectează pacientul:",
-            list(patient_options_hist.keys()),
-            key="hist_patient"
-        )
-        selected_patient_hist = patient_options_hist[selected_name_hist]
-
-        st.markdown(f"**Vârstă:** {format_varsta(selected_patient_hist['data_nasterii'], reference_date=reference_date)}")
-
-        # Current vaccination status (relative to the chosen reference date)
-        st.markdown("#### Stare Curentă")
-        dn = selected_patient_hist["data_nasterii"]
-        all_statuses = get_all_vaccination_statuses(dn, reference_date=reference_date)
-        vaccinated = get_vaccinated_codes_for_patient(selected_patient_hist["id"])
-
-        if all_statuses:
-            for status_text, vaccine_name, cod_cat in all_statuses:
-                if "Adult" in status_text or "Eroare" in status_text:
-                    continue
-                if cod_cat in vaccinated:
-                    st.markdown(f"- ✅ ~~{vaccine_name}~~ — **Administrat**")
-                else:
-                    st.markdown(f"- {status_text} {vaccine_name}")
-
-        # Vaccination history table
-        st.markdown("#### Istoricul Vaccinărilor")
-        history = get_vaccination_history(selected_patient_hist["id"])
-
-        if history:
-            df_history = pd.DataFrame(history)
-            df_history = df_history.rename(columns={
-                "vaccine_name": "Vaccin",
-                "date_administered": "Data Administrării",
-                "lot_number": "Nr. Lot",
-                "administered_by": "Administrat de",
-                "notes": "Observații"
-            })
-            cols_hist = ["Vaccin", "Data Administrării", "Nr. Lot", "Administrat de", "Observații"]
-            st.dataframe(df_history[cols_hist], use_container_width=True, hide_index=True)
-        else:
-            st.info("Nicio vaccinare înregistrată încă. Mergi la tab-ul 'Gestiune Vaccinări' pentru a bifa/debifa vaccinurile.")
-
-
-# ---- TAB 4: EXPORT ----
-with tab_export:
-    st.subheader("📥 Export Catagrafie (Anexa 1)")
-
-    luna_ref = reference_date.month
-    an_ref = reference_date.year
-    st.markdown(
-        f"Raport pentru luna **{LUNI_RO[luna_ref]} {an_ref}** · Paginare automată (13 rânduri/pagină)."
-    )
-
-    df_export = build_operative_list(reference_date)
-
-    if df_export.empty:
-        st.warning("Nu există date pentru export.")
-    else:
-        # Filter: Keep children who have at least one vaccine DUE THIS REFERENCE MONTH
-        # OR who are already RESTANT (overdue from previous months)
-        
-        def has_vaccine_due_this_month(row) -> bool:
-            if "RESTANT" in row['Status']:
-                return True
-                
-            dn = row.get('Vârsta_datetime')
-            cnp_val = str(row['CNP'])
-            
+        patients = {p['id']: p for p in children}
+        patient_id = st.selectbox('Find a patient by name or CNP', list(patients),
+            format_func=lambda key: f"{patients[key]['nume']} · CNP {patients[key]['cnp']}", key='record_patient')
+        patient = patients[patient_id]
+        dob = patient['data_nasterii']
+        st.markdown(patient_context_html(patient), unsafe_allow_html=True)
+        vaccinated = get_vaccinated_codes_for_patient(patient_id)
+        assumed = {r['vaccine_cod'] for r in get_vaccination_history(patient_id) if r['assumed']}
+        with st.form(f'vaccines_{patient_id}'):
+            doses_col, details_col = st.columns([3, 2], gap='large')
+            selection = set()
+            with doses_col:
+                st.markdown('#### Scheduled doses')
+                st.caption('Checked doses already have a record. Future doses are disabled.')
+                for months, (_, code) in VACCINATION_SCHEDULE.items():
+                    due = get_exact_due_date(dob, months)
+                    days_until = (due - as_datetime()).days
+                    label = VACCINE_LABELS[code]
+                    if days_until > 0:
+                        label += f' — in {days_until} days'
+                    if code in assumed:
+                        label += ' — assumed at import, unconfirmed'
+                    if st.checkbox(label, value=code in vaccinated, disabled=days_until > 0,
+                                   key=f'vaccine_{patient_id}_{code}',
+                                   help=f'Scheduled date: {display_date(due)}'):
+                        selection.add(code)
+            with details_col:
+                st.markdown('#### Administration details')
+                st.caption('Applies only to newly checked doses. Existing dates and details are kept.')
+                lot = st.text_input('Batch / lot number (optional)')
+                administered_by = st.text_input('Administered by (optional)')
+                st.warning('Unchecking a recorded dose deletes its record when you save. '
+                           'Check the patient name and CNP before saving.')
+                st.caption('Assumed doses are not confirmed administrations. Leaving them checked keeps their existing record.')
+            submitted = st.form_submit_button('Save vaccination changes', type='primary')
+        if submitted:
             try:
-                an = int(cnp_val[1:3])
-                s = int(cnp_val[0])
-                if s in (5, 6): an += 2000
-                elif s in (1, 2): an += 1900
-                elif s in (7, 8): an += 2000 if an <= datetime.now().year % 100 else 1900
-                else: return False
-                
-                ll = int(cnp_val[3:5])
-                zz = int(cnp_val[5:7])
-                dn = datetime(an, ll, zz)
+                save_vaccination_selection(patient_id, selection, lot, administered_by)
+            except ValueError as exc:
+                st.error(display_error(str(exc)))
             except Exception:
-                return False
+                st.error('No changes were saved. Check access to the local database and try again.')
+            else:
+                st.session_state['saved_message'] = 'Vaccination changes saved. The patient list and history are up to date.'
+                st.rerun()
 
-            pending_codes = row.get('_all_codes', [])
-            
-            for target_months, (_, cod) in VACCINATION_SCHEDULE.items():
-                if cod in pending_codes:
-                    due_date = get_exact_due_date(dn, target_months)
-                    if due_date.year == an_ref and due_date.month == luna_ref:
-                        return True
-            return False
-
-        df_export = df_export[df_export.apply(has_vaccine_due_this_month, axis=1)].copy()
-
-        if df_export.empty:
-            st.warning(f"Nu există copii cu vaccinări programate sau restante în luna {LUNI_RO[luna_ref]}.")
+with history_tab:
+    st.subheader('Patient history')
+    st.caption(f'Schedule status on {display_date(selected_date)}. The full record history is shown below.')
+    children = get_children_patients(reference_date)
+    if not children:
+        st.info('No eligible children on the reference date. Review the date or import a patient file.')
+    else:
+        history_patients = {p['id']: p for p in children}
+        history_id = st.selectbox('Find a patient by name or CNP', list(history_patients), key='history_patient',
+            format_func=lambda key: f"{history_patients[key]['nume']} · CNP {history_patients[key]['cnp']}")
+        patient = history_patients[history_id]
+        dob = patient['data_nasterii']
+        st.markdown(patient_context_html(patient, reference_date), unsafe_allow_html=True)
+        history = get_vaccination_history(history_id)
+        done = {r['vaccine_cod']: r for r in history if r['date_administered'] <= selected_date}
+        pending = {code: status for status, _, code in get_all_vaccination_statuses(dob, reference_date)}
+        for _, (_, code) in VACCINATION_SCHEDULE.items():
+            name = VACCINE_LABELS[code]
+            if code in done:
+                if done[code]['assumed']:
+                    st.markdown(f'- ◻ {name} — **Assumed at import · not clinically confirmed**')
+                else:
+                    st.markdown(f'- ✓ ~~{name}~~ — **Administered**')
+            else:
+                st.markdown(f"- {name} — **{STATUS_LABELS.get(pending.get(code), 'Scheduled later')}**")
+        st.markdown('#### Full record history')
+        st.caption('Includes records after the reference date. Dates on assumed records are scheduled dates, '
+                   'not confirmed administration dates.')
+        if history:
+            table = pd.DataFrame(history)
+            table['Record type'] = table['assumed'].map({True: 'Assumed at import', False: 'Confirmed'})
+            table['vaccine_name'] = table['vaccine_cod'].map(VACCINE_LABELS)
+            table['notes'] = table['notes'].map(display_note)
+            table = table.rename(columns={'vaccine_name': 'Vaccine', 'date_administered': 'Recorded date',
+                'lot_number': 'Batch / lot', 'administered_by': 'Administered by', 'notes': 'Notes'})
+            st.dataframe(table[['Vaccine', 'Recorded date', 'Record type', 'Batch / lot', 'Administered by', 'Notes']],
+                         use_container_width=True, hide_index=True)
         else:
-            df_preview = df_export[~df_export['Status'].isin(["🟢 La Zi"])]
-            st.markdown(f"**Pacienți de exportat:** {len(df_preview)} (Urmează + Scadenți + Restanțieri)")
-            st.markdown(f"**Pagini Excel:** {max(1, (len(df_preview) + 12) // 13)}")
+            st.info('No vaccination records yet. Use Record vaccination to record an administered dose.')
 
-            col_btn, col_info = st.columns([1, 2])
-            with col_btn:
-                # Pass reference_date so the Excel header shows the correct month/year
-                excel_data = convert_df_to_catagrafie(df_export, reference_date=reference_date)
-                st.download_button(
-                    "📥 Descarcă Anexa 1 (Paginată)",
-                    data=excel_data,
-                    file_name=f'Catagrafie_Paginata_{LUNI_RO[luna_ref]}_{an_ref}.xlsx',
-                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                    type="primary"
-                )
-            with col_info:
-                st.info("💡 Exportul generează automat mai multe foi în Excel dacă ai mai mult de 13 copii.")
+with export_tab:
+    st.subheader('Monthly vaccination report')
+    month = MONTHS[reference_date.month - 1]
+    st.write(f'Anexa 1 · {month} {reference_date.year}')
+    st.caption('Includes unrecorded doses scheduled this month and doses overdue on the reference date. '
+               'The Romanian workbook format is preserved. Pneumococcal columns mirror hexavalent doses.')
+    report = filter_monthly_report(frame, reference_date)
+    pages = (len(report) + 12) // 13
+    st.markdown(f'**{len(report)} {"patient" if len(report) == 1 else "patients"}** · '
+                f'**{pages} Excel {"page" if pages == 1 else "pages"}** · 13 patients per page')
+    if report.empty:
+        st.info('No patients need this report for the selected date. Choose another reference date to review a different month.')
+    else:
+        st.dataframe(display_patient_frame(report, include_status=False), use_container_width=True, hide_index=True)
+        st.download_button('Download Anexa 1 (.xlsx)',
+            data=convert_df_to_catagrafie(report, reference_date),
+            file_name=f'Catagrafie_{reference_date:%Y_%m}.xlsx',
+            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', type='primary')

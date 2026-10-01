@@ -1,226 +1,89 @@
-"""
-Tests for Vaccineasy v4.0 — Business Logic Module
-"""
-
-import sys
-import os
+from datetime import date, datetime, timedelta
 import pytest
-from datetime import datetime, timedelta
-
-# Add project root to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-
 from app.business_logic import (
-    decode_cnp, validate_cnp_checksum, format_varsta,
-    get_single_vaccination_status, get_all_vaccination_statuses
+    decode_cnp, validate_cnp_checksum, format_varsta, get_exact_due_date,
+    get_all_vaccination_statuses, get_single_vaccination_status, is_child,
+    VACCINATION_SCHEDULE,
 )
 
 
-class TestCNPDecoding:
-    """Test CNP decoding and validation."""
-
-    def test_valid_male_1900s(self):
-        """CNP starting with 1 -> male born in 1900s."""
-        # 1 90 03 15 -> 15 March 1990
-        cnp = "1900315123456"
-        result = decode_cnp(cnp)
-        assert result is not None
-        assert result.year == 1990
-        assert result.month == 3
-        assert result.day == 15
-
-    def test_valid_female_1900s(self):
-        """CNP starting with 2 -> female born in 1900s."""
-        # 2 85 07 22 -> 22 July 1985
-        cnp = "2850722123456"
-        result = decode_cnp(cnp)
-        assert result is not None
-        assert result.year == 1985
-        assert result.month == 7
-        assert result.day == 22
-
-    def test_valid_male_2000s(self):
-        """CNP starting with 5 -> male born in 2000s."""
-        # 5 24 01 10 -> 10 January 2024
-        cnp = "5240110123456"
-        result = decode_cnp(cnp)
-        assert result is not None
-        assert result.year == 2024
-        assert result.month == 1
-        assert result.day == 10
-
-    def test_valid_female_2000s(self):
-        """CNP starting with 6 -> female born in 2000s."""
-        # 6 25 12 01 -> 1 December 2025
-        cnp = "6251201123456"
-        result = decode_cnp(cnp)
-        assert result is not None
-        assert result.year == 2025
-        assert result.month == 12
-        assert result.day == 1
-
-    def test_valid_1800s(self):
-        """CNP starting with 3/4 -> born in 1800s."""
-        # 3 80 06 15 -> 15 June 1880
-        cnp = "3800615123456"
-        result = decode_cnp(cnp)
-        assert result is not None
-        assert result.year == 1880
-
-    def test_invalid_too_short(self):
-        """Short CNP -> returns None."""
-        assert decode_cnp("123") is None
-        assert decode_cnp("") is None
-
-    def test_invalid_empty(self):
-        """Empty string -> returns None."""
-        assert decode_cnp("") is None
-
-    def test_cleans_non_digit_characters(self):
-        """CNP with spaces/dashes -> cleaned and parsed."""
-        cnp = "1 900315 123456"
-        result = decode_cnp(cnp)
-        assert result is not None
-        assert result.year == 1990
-
-    def test_foreign_resident_digit_7(self):
-        """CNP starting with 7 (foreign male) -> should not return None."""
-        # 7 24 05 10 -> foreign male, probably 2024
-        cnp = "7240510123456"
-        result = decode_cnp(cnp)
-        assert result is not None
-        assert result.year == 2024
-
-    def test_foreign_resident_digit_8(self):
-        """CNP starting with 8 (foreign female) -> should not return None."""
-        cnp = "8240510123456"
-        result = decode_cnp(cnp)
-        assert result is not None
-
-    def test_sex_digit_zero_invalid(self):
-        """CNP starting with 0 -> invalid."""
-        cnp = "0900315123456"
-        result = decode_cnp(cnp)
-        assert result is None
+@pytest.mark.parametrize('cnp,expected', [
+    ('1900315123456', datetime(1990, 3, 15)), ('2850722123456', datetime(1985, 7, 22)),
+    ('5240110123456', datetime(2024, 1, 10)), ('6251201123456', datetime(2025, 12, 1)),
+    ('3800615123456', datetime(1880, 6, 15)), ('4800615123456', datetime(1880, 6, 15)),
+    ('1 90-03-15 123456', datetime(1990, 3, 15)),
+    ('7240510123456', datetime(2024, 5, 10)), ('8240510123456', datetime(2024, 5, 10)),
+    ('9990510123456', datetime(1999, 5, 10)), ('0900315123456', None),
+    ('', None), ('123', None), (None, None), ('5240230123456', None), ('52401101234567', None),
+])
+def test_decode(cnp, expected):
+    assert decode_cnp(cnp) == expected
 
 
-class TestCNPChecksum:
-    """Test CNP checksum validation."""
-
-    def test_valid_checksum(self):
-        """Known valid CNP passes checksum."""
-        # This is a well-known test CNP: 1800101221144
-        # Let's compute manually: weights = 2,7,9,1,4,6,3,5,8,2,7,9
-        # We'll just verify the function accepts valid format
-        # Using a synthetic valid one for testing
-        assert isinstance(validate_cnp_checksum("1234567890123"), bool)
-
-    def test_invalid_too_short(self):
-        """Short string fails."""
-        assert validate_cnp_checksum("12345") is False
-
-    def test_invalid_non_digits(self):
-        """Non-digit characters fail."""
-        assert validate_cnp_checksum("123456789ABCD") is False
+def test_foreign_century_boundary():
+    yy = datetime.now().year % 100
+    assert decode_cnp(f'7{yy:02d}0101123456').year == 2000 + yy
+    assert decode_cnp(f'8{yy+1:02d}0101123456').year == 1900 + yy + 1
 
 
-class TestFormatVarsta:
-    """Test age formatting."""
-
-    def test_none_input(self):
-        assert format_varsta(None) == "CNP Invalid"
-
-    def test_infant(self):
-        """Baby under 1 year -> shows months only."""
-        dob = datetime.now() - timedelta(days=90)  # ~3 months
-        result = format_varsta(dob)
-        assert "luni" in result
-        assert "ani" not in result
-
-    def test_exact_years(self):
-        """Exact year birthday for whole-year display."""
-        now = datetime.now()
-        dob = datetime(now.year - 5, now.month, now.day)
-        result = format_varsta(dob)
-        assert "5 ani fix" in result
-
-    def test_years_and_months(self):
-        """Mixed age shows both."""
-        now = datetime.now()
-        # 3 years and 2 months ago
-        month = now.month - 2
-        year = now.year - 3
-        if month <= 0:
-            month += 12
-            year -= 1
-        dob = datetime(year, month, now.day)
-        result = format_varsta(dob)
-        assert "3 ani" in result
-        assert "2 luni" in result
+@pytest.mark.parametrize('cnp,expected', [
+    ('1800101221144', True), ('1800101221145', False),
+    ('5000101000091', True),  # weighted sum 98 -> remainder 10 -> control 1
+    ('12345', False), ('123456789ABCD', False), (None, False),
+])
+def test_checksum(cnp, expected):
+    assert validate_cnp_checksum(cnp) is expected
 
 
-class TestVaccinationStatus:
-    """Test the vaccination status engine."""
+def test_bad_checksum_still_decodes():
+    assert decode_cnp('1800101221145') == datetime(1980, 1, 1)
 
-    def test_adult_ignored(self):
-        """Person over 15 years -> Adult (Ignorat)."""
-        dob = datetime.now() - timedelta(days=365 * 20)
-        status, vaccin, cod = get_single_vaccination_status(dob)
-        assert "Adult" in status
 
-    def test_none_input(self):
-        """None date of birth -> Eroare CNP."""
-        status, vaccin, cod = get_single_vaccination_status(None)
-        assert "Eroare" in status
+@pytest.mark.parametrize('dob,ref,expected', [
+    (None, date(2026, 1, 1), 'CNP Invalid'),
+    (date(2025, 10, 1), date(2026, 1, 1), '3 luni'),
+    (date(2020, 10, 1), date(2025, 10, 1), '5 ani fix'),
+    (date(2020, 8, 1), date(2025, 10, 1), '5 ani, 2 luni'),
+    (date(2025, 8, 20), date(2025, 10, 19), '1 luni'),
+    (date(2025, 1, 31), date(2025, 2, 28), '1 luni'),
+    (date(2026, 1, 2), date(2026, 1, 1), 'Nenăscut la data de referință'),
+])
+def test_age(dob, ref, expected):
+    assert format_varsta(dob, ref) == expected
 
-    def test_overdue_hexa_2(self):
-        """Child 100 days old -> RESTANT for Hexa 2 months."""
-        dob = datetime.now() - timedelta(days=100)
-        statuses = get_all_vaccination_statuses(dob)
-        restants = [(s, v, c) for s, v, c in statuses if "RESTANT" in s]
-        assert len(restants) > 0
-        assert any("Hexa" in v and "2" in v for s, v, c in restants)
 
-    def test_due_hexa_2(self):
-        """Child 62 days old -> Scadent for Hexa 2 months."""
-        dob = datetime.now() - timedelta(days=62)
-        statuses = get_all_vaccination_statuses(dob)
-        scadent = [(s, v, c) for s, v, c in statuses if "Scadent" in s]
-        assert len(scadent) > 0
+@pytest.mark.parametrize('dob,months,expected', [
+    (date(2025, 1, 31), 1, datetime(2025, 2, 28)),
+    (date(2024, 1, 31), 1, datetime(2024, 2, 29)),
+    (date(2024, 2, 29), 12, datetime(2025, 2, 28)),
+    (date(2025, 12, 31), 2, datetime(2026, 2, 28)),
+])
+def test_due_dates(dob, months, expected):
+    assert get_exact_due_date(dob, months) == expected
 
-    def test_upcoming_hexa_2(self):
-        """Child 50 days old -> Urmează for Hexa 2 months."""
-        dob = datetime.now() - timedelta(days=50)
-        statuses = get_all_vaccination_statuses(dob)
-        upcoming = [(s, v, c) for s, v, c in statuses if "Urmează" in s]
-        assert len(upcoming) > 0
 
-    def test_multiple_overdue_vaccines(self):
-        """
-        BUG FIX TEST: Child 200 days old should have BOTH Hexa 2m and Hexa 4m
-        as overdue. The old code only reported the first one.
-        """
-        dob = datetime.now() - timedelta(days=200)
-        statuses = get_all_vaccination_statuses(dob)
-        restants = [(s, v, c) for s, v, c in statuses if "RESTANT" in s]
+@pytest.mark.parametrize('offset,status', [(-32, None), (-31, 'Urmează'), (-1, 'Urmează'),
+                                        (0, 'Scadent'), (30, 'Scadent'), (31, 'RESTANT')])
+def test_status_boundaries(offset, status):
+    ref = datetime(2025, 3, 1) + timedelta(days=offset, hours=23)
+    hexa = [s for s, _, code in get_all_vaccination_statuses(datetime(2025, 1, 1), ref) if code == 'Hexa_2']
+    assert (status in hexa[0]) if status else not hexa
 
-        # Should have at least 2 restant vaccines (Hexa 2m and Hexa 4m)
-        assert len(restants) >= 2, (
-            f"Expected at least 2 overdue vaccines, got {len(restants)}: {restants}"
-        )
 
-        codes = [c for _, _, c in restants]
-        assert "Hexa_2" in codes, "Hexa 2 months should be RESTANT"
-        assert "Hexa_4" in codes, "Hexa 4 months should be RESTANT"
+def test_multiple_priority_and_completed():
+    dob, ref = datetime(2025, 1, 1), datetime(2026, 1, 1)
+    statuses = get_all_vaccination_statuses(dob, ref)
+    assert {'Hexa_2', 'Hexa_4', 'Hexa_11', 'ROR_12'} <= {c for _, _, c in statuses}
+    assert 'RESTANT' in get_single_vaccination_status(dob, ref)[0]
+    assert 'Scadent' in get_single_vaccination_status(dob, ref, {'Hexa_2', 'Hexa_4', 'Hexa_11'})[0]
+    assert get_single_vaccination_status(dob, ref, {c for _, c in VACCINATION_SCHEDULE.values()})[0] == '🟢 La Zi'
 
-    def test_up_to_date_child(self):
-        """Very young child (1 day) -> should have no statuses (up to date)."""
-        dob = datetime.now() - timedelta(days=1)
-        statuses = get_all_vaccination_statuses(dob)
-        assert len(statuses) == 0
 
-    def test_single_status_priority(self):
-        """get_single_vaccination_status returns RESTANT over Scadent."""
-        dob = datetime.now() - timedelta(days=200)
-        status, vaccin, cod = get_single_vaccination_status(dob)
-        assert "RESTANT" in status
+def test_adult_invalid_and_newborn():
+    ref = datetime(2026, 1, 1)
+    assert 'Adult' in get_single_vaccination_status(datetime(2000, 1, 1), ref)[0]
+    assert 'Eroare' in get_single_vaccination_status(None, ref)[0]
+    assert not get_all_vaccination_statuses(ref, ref)
+    assert is_child(date(2011, 1, 1), ref)
+    assert not is_child(date(2010, 12, 31), ref)
+    assert not is_child(date(2026, 1, 2), ref)

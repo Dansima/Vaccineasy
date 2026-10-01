@@ -17,7 +17,7 @@ def validate_cnp_checksum(cnp: str) -> bool:
     Validate the CNP checksum (digit 13) using the official algorithm.
     Weighted sum of first 12 digits mod 11; if result is 10, control digit is 1.
     """
-    if len(cnp) != 13 or not cnp.isdigit():
+    if not isinstance(cnp, str) or len(cnp) != 13 or not cnp.isascii() or not cnp.isdigit():
         return False
 
     digits = [int(d) for d in cnp]
@@ -46,26 +46,21 @@ def decode_cnp(cnp: str) -> Optional[datetime]:
       1,2 = born 1900-1999 (male, female)
       3,4 = born 1800-1899 (male, female)
       5,6 = born 2000-2099 (male, female)
-      7,8 = foreign residents (male, female) — assumed 2000+ if AA < 26, else 1900+
+      7,8 = foreign residents — century inferred relative to the current year
       9   = foreign (no century info — handled as best effort)
 
     Returns None if:
-      - CNP is too short or contains non-digit characters
-      - Checksum is invalid
+      - The cleaned CNP does not have exactly 13 ASCII digits
       - Date cannot be parsed
     """
     cnp = str(cnp).strip()
     cnp = ''.join(filter(str.isdigit, cnp))
 
-    if len(cnp) < 13:
+    if len(cnp) != 13 or not cnp.isascii():
         return None
 
-    cnp = cnp[:13]  # Take only first 13 digits if longer
-
     if not validate_cnp_checksum(cnp):
-        # Allow invalid checksums for now (test data doesn't have valid checksums)
-        # but log it. In production, uncomment the return None.
-        # return None
+        # ICMED records with a parseable birth date remain importable.
         pass
 
     try:
@@ -112,13 +107,14 @@ def format_varsta(data_nasterii: Optional[datetime],
     if not data_nasterii:
         return "CNP Invalid"
 
-    azi = reference_date if reference_date is not None else datetime.now()
-    ani = azi.year - data_nasterii.year
-    luni = azi.month - data_nasterii.month
-
-    if luni < 0:
-        ani -= 1
-        luni += 12
+    azi = as_datetime(reference_date)
+    dob = as_datetime(data_nasterii)
+    if dob > azi:
+        return "Nenăscut la data de referință"
+    months = (azi.year - dob.year) * 12 + azi.month - dob.month
+    if get_exact_due_date(dob, months) > azi:
+        months -= 1
+    ani, luni = divmod(months, 12)
 
     if ani == 0:
         return f"{luni} luni"
@@ -147,10 +143,22 @@ VACCINATION_SCHEDULE = {
 # Status thresholds (in days)
 UPCOMING_WINDOW = 31    # Days before target to show as "Urmează"
 DUE_WINDOW = 30         # Days after target to show as "Scadent"
-OVERDUE_LIMIT = 500     # Days after target before we stop flagging as "Restant"
 
 # Age limit — children only
 MAX_AGE_YEARS = 15
+
+
+def as_datetime(value=None) -> datetime:
+    """Normalize date/datetime inputs to calendar days, ignoring wall-clock time."""
+    value = value if value is not None else datetime.now()
+    return datetime(value.year, value.month, value.day)
+
+
+def is_child(dob, reference_date=None) -> bool:
+    if dob is None:
+        return False
+    ref = as_datetime(reference_date)
+    return as_datetime(dob) <= ref <= get_exact_due_date(dob, MAX_AGE_YEARS * 12)
 
 
 def get_exact_due_date(dn: datetime, target_months: int) -> datetime:
@@ -166,7 +174,8 @@ def get_exact_due_date(dn: datetime, target_months: int) -> datetime:
 
 
 def get_all_vaccination_statuses(data_nasterii: Optional[datetime],
-                                  reference_date: Optional[datetime] = None):
+                                  reference_date: Optional[datetime] = None,
+                                  vaccinated_codes=None):
     """
     Returns ALL pending vaccination statuses for a child.
     This fixes the bug where only the first overdue vaccine was reported.
@@ -186,14 +195,16 @@ def get_all_vaccination_statuses(data_nasterii: Optional[datetime],
     if not data_nasterii:
         return [("Eroare CNP", "-", None)]
 
-    azi = reference_date if reference_date is not None else datetime.now()
-    varsta_ani = (azi - data_nasterii).days / 365.25
-
-    if varsta_ani > MAX_AGE_YEARS:
+    azi = as_datetime(reference_date)
+    if as_datetime(data_nasterii) > azi:
+        return [("Nenăscut la data de referință", "-", None)]
+    if not is_child(data_nasterii, azi):
         return [("🟢 Adult (Ignorat)", "-", None)]
 
     results = []
     for target_months, (nume_vaccin, cod_cat) in VACCINATION_SCHEDULE.items():
+        if cod_cat in (vaccinated_codes or set()):
+            continue
         due_date = get_exact_due_date(data_nasterii, target_months)
         diff_days = (azi - due_date).days
 
@@ -211,10 +222,10 @@ def get_all_vaccination_statuses(data_nasterii: Optional[datetime],
 
 
 def get_single_vaccination_status(data_nasterii: Optional[datetime],
-                                   reference_date: Optional[datetime] = None):
+                                   reference_date: Optional[datetime] = None,
+                                   vaccinated_codes=None):
     """
-    LEGACY — Returns only the first matching vaccination status.
-    Kept for backward compatibility with the Anexa 1 export.
+    Returns the highest-priority pending vaccination status.
 
     Args:
         data_nasterii:  Date of birth as a datetime object.
@@ -223,7 +234,7 @@ def get_single_vaccination_status(data_nasterii: Optional[datetime],
 
     Returns: (status_text, vaccine_name, category_code)
     """
-    statuses = get_all_vaccination_statuses(data_nasterii, reference_date=reference_date)
+    statuses = get_all_vaccination_statuses(data_nasterii, reference_date, vaccinated_codes)
     if not statuses:
         return "🟢 La Zi", "-", None
 
