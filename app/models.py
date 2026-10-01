@@ -6,11 +6,18 @@ Patient records, vaccine reference data, and vaccination history.
 from datetime import datetime
 from sqlalchemy import (
     Column, Integer, String, DateTime, Date, Text, ForeignKey,
-    UniqueConstraint, create_engine
+    UniqueConstraint
 )
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
+
+
+class ImportBaseline(Base):
+    """One-time historical completion; prevents deleted doses being recreated."""
+    __tablename__ = 'import_baselines'
+    patient_id = Column(Integer, ForeignKey('patients.id', ondelete='CASCADE'), primary_key=True)
+    cutoff_date = Column(Date, nullable=False)
 
 
 class Patient(Base):

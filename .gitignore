@@ -21,6 +21,10 @@ env/
 
 # Data (local database and test files)
 data/*.db
+data/*.db-*
+.pytest_cache/
+tmp/
+*.zip
 data/*.sqlite
 *.xlsx
 *.xls

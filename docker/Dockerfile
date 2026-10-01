@@ -15,6 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY app/ ./app/
+COPY .streamlit/config.toml ./.streamlit/config.toml
 
 # Create data directory for SQLite database
 RUN mkdir -p /app/data
